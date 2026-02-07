@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
+import ForceGraph2D from 'react-force-graph-2d';
 
 const API_URL = 'http://localhost:3000';
 
@@ -243,12 +244,54 @@ function StatCard({ value, label }) {
   );
 }
 
+
+
 function RAGPlaygroundPage({ mentorMode }) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [retrievalSteps, setRetrievalSteps] = useState([]);
   const [currentStep, setCurrentStep] = useState(-1);
+  const [recentChats, setRecentChats] = useState([]);
+  const [chatId, setChatId] = useState(Date.now()); // Unique ID for current session
+
+  // Load recent chats from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('codesensei_chats');
+    if (saved) {
+      try {
+        setRecentChats(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse recent chats', e);
+      }
+    }
+  }, []);
+
+  // Save specific chat to history
+  const saveToHistory = (queryText, answer) => {
+    const newChat = {
+      id: Date.now(),
+      query: queryText,
+      preview: answer ? answer.substring(0, 60) + '...' : '...',
+      timestamp: new Date().toISOString(),
+      mentorMode
+    };
+
+    // Check if query is duplicate (prevent spamming same query)
+    const updated = [newChat, ...recentChats.filter(c => c.query !== queryText)].slice(0, 10);
+    setRecentChats(updated);
+    localStorage.setItem('codesensei_chats', JSON.stringify(updated));
+  };
+
+  const loadPastChat = (chat) => {
+    setQuery(chat.query);
+    // In a real app we'd load the full result, but for now just populate query
+  };
+
+  const clearHistory = () => {
+    setRecentChats([]);
+    localStorage.removeItem('codesensei_chats');
+  };
 
   const runQuery = async () => {
     if (!query.trim()) return;
@@ -260,19 +303,20 @@ function RAGPlaygroundPage({ mentorMode }) {
 
     // Simulate step progression for visualization
     const steps = [
-      { step: 'query_received', label: 'Query Received', icon: '' },
-      { step: 'embedding_query', label: 'Generating Query Embedding', icon: '' },
-      { step: 'searching_vectors', label: 'Searching Vector Store', icon: '' },
-      { step: 'ranking_results', label: 'Ranking Results', icon: '' },
-      { step: 'building_context', label: 'Building Context', icon: '' },
-      { step: 'generating_response', label: 'Generating AI Response', icon: '' },
+      { step: 'query_received', label: 'Query Received', icon: '📝' },
+      { step: 'intent_recognition', label: 'Detecting Intent (Specific vs Broad)', icon: '🧠' },
+      { step: 'embedding_query', label: 'Generating Query Embedding', icon: '🔢' },
+      { step: 'searching_vectors', label: 'Searching Vector Store', icon: '🔍' },
+      { step: 'ranking_results', label: 'Ranking & Filtering', icon: '⚖️' },
+      { step: 'building_context', label: 'Building Context', icon: '🏗️' },
+      { step: 'generating_response', label: 'Generating AI Response', icon: '✨' },
     ];
 
     // Animate through steps
     for (let i = 0; i < steps.length; i++) {
       setCurrentStep(i);
       setRetrievalSteps(prev => [...prev, { ...steps[i], status: 'active' }]);
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 300)); // Faster animation
       setRetrievalSteps(prev => prev.map((s, idx) =>
         idx === i ? { ...s, status: 'complete' } : s
       ));
@@ -298,6 +342,10 @@ function RAGPlaygroundPage({ mentorMode }) {
         icon: '✅',
         status: 'complete'
       }]);
+
+      // Save to recent chats
+      saveToHistory(query, data.answer);
+
     } catch (e) {
       setResult({ error: e.message });
     }
@@ -315,117 +363,165 @@ function RAGPlaygroundPage({ mentorMode }) {
         </p>
       </div>
 
-      <div className="rag-container">
-        <div className="rag-input-section">
-          <div className="card">
-            <h3>Ask a Question</h3>
-            <textarea
-              className="rag-input"
-              placeholder="e.g., How does the authentication flow work in this project?"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              rows={3}
-            />
-            <button
-              className="btn btn-primary btn-lg"
-              onClick={runQuery}
-              disabled={loading || !query.trim()}
-            >
-              {loading ? 'Processing...' : 'Run RAG Query'}
-            </button>
-          </div>
-
-          {/* Retrieval Visualization */}
-          <div className="card retrieval-viz">
-            <h3>Retrieval Pipeline</h3>
-            <div className="pipeline-steps">
-              {retrievalSteps.map((step, i) => (
-                <div key={i} className={`pipeline-step ${step.status}`}>
-                  <span className="step-icon">{step.icon}</span>
-                  <span className="step-label">{step.label}</span>
-                  {step.status === 'active' && <div className="step-spinner"></div>}
-                  {step.status === 'complete' && <span className="step-check">✓</span>}
-                </div>
-              ))}
-              {retrievalSteps.length === 0 && (
-                <div className="pipeline-empty">
-                  Run a query to see the RAG pipeline in action
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="rag-results-section">
-          {result && !result.error && (
-            <>
-              {/* Sources Panel */}
-              <div className="card sources-panel">
-                <h3>Retrieved Context ({result.sources?.length || 0} chunks)</h3>
-                <div className="sources-list">
-                  {result.sources?.map((source, i) => (
-                    <div key={i} className="source-card">
-                      <div className="source-header">
-                        <span className="source-file">{source.path}</span>
-                        <span className="source-relevance">{source.relevance}</span>
-                      </div>
-                      <div className="source-lines">
-                        Lines {source.lines} • {source.language}
-                      </div>
-                      <div className="source-preview">{source.preview}</div>
-                      <button
-                        className="btn btn-sm btn-secondary jump-btn"
-                        onClick={() => window.open(`vscode://file/${source.path}:${source.startLine}`)}
-                      >
-                        Jump to Code
-                      </button>
-                    </div>
-                  ))}
+      <div className="rag-layout">
+        <div className="rag-main">
+          <div className="rag-input-section">
+            <div className="card">
+              <h3>Ask a Question</h3>
+              <div className="input-wrapper">
+                <textarea
+                  className="rag-input"
+                  placeholder={mentorMode ? "I'm your mentor. Ask me to explain concepts..." : "Ask specific questions about files, functions, or architecture..."}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  rows={3}
+                />
+                <div className="input-actions">
+                  <span className="hint-text">
+                    {mentorMode ? '💡 Tip: Ask "Why..." questions' : '💡 Tip: Ask about specific files'}
+                  </span>
+                  <button
+                    className="btn btn-primary btn-lg"
+                    onClick={runQuery}
+                    disabled={loading || !query.trim()}
+                  >
+                    {loading ? 'Thinking...' : 'Run Query'}
+                  </button>
                 </div>
               </div>
+            </div>
 
-              {/* Answer Panel */}
-              <div className="card answer-panel">
-                <div className="answer-header">
-                  <h3>AI Response</h3>
-                  <div className="answer-meta">
-                    <span className={`mode-badge ${result.metadata?.mentorMode ? 'mentor' : 'speed'}`}>
-                      {result.metadata?.mentorMode ? 'Mentor Mode' : 'Speed Mode'}
-                    </span>
-                    <span>{result.metadata?.timeMs}ms</span>
+            {/* Retrieval Visualization */}
+            <div className="card retrieval-viz">
+              <h3>Retrieval Pipeline</h3>
+              <div className="pipeline-steps">
+                {retrievalSteps.map((step, i) => (
+                  <div key={i} className={`pipeline-step ${step.status}`}>
+                    <span className="step-icon">{step.icon}</span>
+                    <span className="step-label">{step.label}</span>
+                    {step.status === 'active' && <div className="step-spinner"></div>}
+                    {step.status === 'complete' && <span className="step-check">✓</span>}
+                  </div>
+                ))}
+                {retrievalSteps.length === 0 && (
+                  <div className="pipeline-empty">
+                    Run a query to see the RAG pipeline in action
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rag-results-section">
+            {result && !result.error && (
+              <>
+                {/* Sources Panel */}
+                <div className="card sources-panel">
+                  <h3>Retrieved Context ({result.sources?.length || 0} chunks)</h3>
+                  <div className="sources-list">
+                    {result.sources?.map((source, i) => (
+                      <div key={i} className="source-card">
+                        <div className="source-header">
+                          <span className="source-file">{source.path}</span>
+                          <span className="source-relevance">{source.relevance}</span>
+                        </div>
+                        <div className="source-lines">
+                          Lines {source.lines} • {source.language}
+                        </div>
+                        <div className="source-preview">{source.preview}</div>
+                        <button
+                          className="btn btn-sm btn-secondary jump-btn"
+                          onClick={() => window.open(`vscode://file/${source.path}:${source.startLine}`)}
+                        >
+                          Open
+                        </button>
+                      </div>
+                    ))}
+                    {(!result.sources || result.sources.length === 0) && (
+                      <div className="no-sources">
+                        No direct code matches found. Answer generated from general knowledge.
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="answer-content">
-                  {result.answer}
+
+                {/* Answer Panel */}
+                <div className="card answer-panel">
+                  <div className="answer-header">
+                    <h3>AI Response</h3>
+                    <div className="answer-meta">
+                      <span className={`mode-badge ${result.metadata?.mentorMode ? 'mentor' : 'speed'}`}>
+                        {result.metadata?.mentorMode ? 'Mentor Mode' : 'Speed Mode'}
+                      </span>
+                      <span>{result.metadata?.timeMs}ms</span>
+                    </div>
+                  </div>
+                  <div className="answer-content">
+                    {result.answer}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {result?.error && (
+              <div className="card error-card">
+                <h3>Error</h3>
+                <p>{result.error}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* History Sidebar */}
+        <aside className="rag-history-sidebar">
+          <div className="history-header">
+            <h3>Recent Chats</h3>
+            {recentChats.length > 0 && (
+              <button className="btn-text" onClick={clearHistory}>Clear</button>
+            )}
+          </div>
+          <div className="history-list">
+            {recentChats.map((chat) => (
+              <div key={chat.id} className="history-item" onClick={() => loadPastChat(chat)}>
+                <div className="history-query">{chat.query}</div>
+                <div className="history-preview">{chat.preview}</div>
+                <div className="history-meta">
+                  <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  {chat.mentorMode && <span className="history-badge">Mentor</span>}
                 </div>
               </div>
-            </>
-          )}
-
-          {result?.error && (
-            <div className="card error-card">
-              <h3>Error</h3>
-              <p>{result.error}</p>
-            </div>
-          )}
-        </div>
+            ))}
+            {recentChats.length === 0 && (
+              <div className="history-empty">No recent chats</div>
+            )}
+          </div>
+        </aside>
       </div>
     </>
   );
 }
 
 function CodeDNAPage() {
-  const [graphData, setGraphData] = useState(null);
+  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
-  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
 
   const loadGraph = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/knowledge-graph`);
       const data = await res.json();
-      setGraphData(data);
+
+      // Transform data for force graph if needed, but it usually accepts nodes/links
+      // Ensure specific colors for languages
+      const coloredNodes = data.nodes.map(n => ({
+        ...n,
+        val: n.importance || 1, // Size
+        color: getLanguageColor(n.language) // Color
+      }));
+
+      setGraphData({ ...data, nodes: coloredNodes, links: data.edges });
     } catch (e) {
       console.error('Failed to load graph:', e);
     }
@@ -436,129 +532,58 @@ function CodeDNAPage() {
     loadGraph();
   }, []);
 
-  useEffect(() => {
-    if (!graphData || !graphData.nodes.length || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width = canvas.offsetWidth;
-    const height = canvas.height = canvas.offsetHeight;
-
-    // Simple force-directed layout
-    const nodes = graphData.nodes.map((n, i) => ({
-      ...n,
-      x: width / 2 + Math.cos(i * 2 * Math.PI / graphData.nodes.length) * 200,
-      y: height / 2 + Math.sin(i * 2 * Math.PI / graphData.nodes.length) * 200,
-      vx: 0,
-      vy: 0
-    }));
-
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-    const draw = () => {
-      ctx.clearRect(0, 0, width, height);
-
-      // Draw edges
-      ctx.strokeStyle = 'rgba(99, 102, 241, 0.3)';
-      ctx.lineWidth = 1;
-      graphData.edges.forEach(edge => {
-        const source = nodeMap.get(edge.source);
-        const target = nodeMap.get(edge.target);
-        if (source && target) {
-          ctx.beginPath();
-          ctx.moveTo(source.x, source.y);
-          ctx.lineTo(target.x, target.y);
-          ctx.stroke();
-        }
-      });
-
-      // Draw nodes
-      nodes.forEach(node => {
-        const radius = 8 + (node.importance || 0) * 2;
-        const isSelected = selectedNode?.id === node.id;
-
-        // Node glow
-        if (isSelected) {
-          ctx.shadowColor = '#818cf8';
-          ctx.shadowBlur = 20;
-        }
-
-        // Node circle
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = getLanguageColor(node.language);
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-
-        // Label
-        ctx.fillStyle = '#fff';
-        ctx.font = '11px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(node.label, node.x, node.y + radius + 14);
-      });
-    };
-
-    draw();
-
-    // Click handler
-    const handleClick = (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      const clicked = nodes.find(n => {
-        const dist = Math.sqrt((n.x - x) ** 2 + (n.y - y) ** 2);
-        return dist < 20;
-      });
-
-      setSelectedNode(clicked || null);
-      draw();
-    };
-
-    canvas.addEventListener('click', handleClick);
-    return () => canvas.removeEventListener('click', handleClick);
-  }, [graphData, selectedNode]);
-
-  const getLanguageColor = (lang) => {
-    const colors = {
-      javascript: '#f7df1e',
-      typescript: '#3178c6',
-      python: '#3776ab',
-      java: '#b07219',
-      go: '#00add8',
-      rust: '#dea584',
-      ruby: '#cc342d',
-      default: '#818cf8'
-    };
-    return colors[lang] || colors.default;
-  };
-
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Code DNA</h1>
-        <p className="page-subtitle">Interactive knowledge graph of your codebase</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">Code DNA</h1>
+            <p className="page-subtitle">Interactive knowledge graph of your codebase</p>
+          </div>
+          <button className="btn btn-secondary" onClick={loadGraph} disabled={loading}>
+            {loading ? 'Rescanning...' : '🔄 Refresh Graph'}
+          </button>
+        </div>
       </div>
 
       <div className="codedna-container">
-        <div className="card graph-card">
-          <div className="card-header">
-            <h3 className="card-title">
-              Dependency Graph
-            </h3>
-            <button className="btn btn-secondary" onClick={loadGraph} disabled={loading}>
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
+        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#0f172a' }}>
+          {graphData.nodes.length > 0 ? (
+            <ForceGraph2D
+              width={containerRef.current ? containerRef.current.clientWidth : 800}
+              height={600}
+              graphData={graphData}
+              nodeLabel="label"
+              nodeColor="color"
+              nodeRelSize={6}
+              linkColor={() => 'rgba(255,255,255,0.2)'}
+              backgroundColor="#0f172a"
+              onNodeClick={(node) => setSelectedNode(node)}
+              nodeCanvasObject={(node, ctx, globalScale) => {
+                const label = node.label;
+                const fontSize = 12 / globalScale;
+                ctx.font = `${fontSize}px Sans-Serif`;
+                const textWidth = ctx.measureText(label).width;
+                const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
 
-          {graphData?.nodes?.length > 0 ? (
-            <canvas ref={canvasRef} className="graph-canvas" />
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.0)'; // Transparent text background
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
+                ctx.fillStyle = node.color || '#818cf8';
+                ctx.fill();
+
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#cbd5e1';
+                if (globalScale > 1.2) { // Only show labels when zoomed in slightly
+                  ctx.fillText(label, node.x, node.y + 8);
+                }
+              }}
+            />
           ) : (
             <div className="empty-state">
-              <div>◆</div>
-              <h3>No Code DNA Yet</h3>
-              <p>Index a project using the VS Code extension to visualize its structure.</p>
+              <div className="spinner"></div>
+              <p>Building Knowledge Graph...</p>
             </div>
           )}
         </div>
@@ -576,50 +601,51 @@ function CodeDNAPage() {
                   <span className="stat-number">{graphData.stats.totalEdges}</span>
                   <span className="stat-label">Connections</span>
                 </div>
-                <div className="graph-stat">
-                  <span className="stat-number">{graphData.stats.languages?.length || 0}</span>
-                  <span className="stat-label">Languages</span>
-                </div>
               </div>
             </div>
           )}
 
-          {selectedNode && (
+          {selectedNode ? (
             <div className="card node-details">
               <h3>{selectedNode.label}</h3>
               <div className="node-info">
                 <p><strong>Path:</strong> {selectedNode.fullPath}</p>
-                <p><strong>Language:</strong> {selectedNode.language}</p>
+                <p><strong>Language:</strong> <span style={{ color: selectedNode.color }}>{selectedNode.language}</span></p>
                 <p><strong>Lines:</strong> {selectedNode.lines}</p>
                 <p><strong>Chunks:</strong> {selectedNode.chunks}</p>
-                <p><strong>Connections:</strong> {selectedNode.connections}</p>
+
                 {selectedNode.imports?.length > 0 && (
-                  <div>
-                    <strong>Imports:</strong>
+                  <div className="imports-list">
+                    <strong>Imports ({selectedNode.imports.length}):</strong>
                     <ul>
-                      {selectedNode.imports.map((imp, i) => (
+                      {selectedNode.imports.slice(0, 5).map((imp, i) => (
                         <li key={i}>{imp}</li>
                       ))}
+                      {selectedNode.imports.length > 5 && <li>...and {selectedNode.imports.length - 5} more</li>}
                     </ul>
                   </div>
                 )}
               </div>
               <button
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary btn-sm btn-block"
                 onClick={() => window.open(`vscode://file/${selectedNode.fullPath}`)}
               >
                 Open in VS Code
               </button>
+            </div>
+          ) : (
+            <div className="card node-details empty">
+              <p>Select a node to view details</p>
             </div>
           )}
 
           <div className="card">
             <h3>Legend</h3>
             <div className="legend">
-              {['javascript', 'typescript', 'python', 'java'].map(lang => (
+              {['javascript', 'typescript', 'python', 'java', 'go', 'rust'].map(lang => (
                 <div key={lang} className="legend-item">
                   <span className="legend-dot" style={{ background: getLanguageColor(lang) }}></span>
-                  <span>{lang}</span>
+                  <span>{lang.charAt(0).toUpperCase() + lang.slice(1)}</span>
                 </div>
               ))}
             </div>

@@ -21,7 +21,7 @@ async function askWithRAG(query, currentFile = null, options = {}) {
     };
 
     // Get system prompt based on query type and mentor mode
-    const systemPrompt = getSystemPrompt(queryType, mentorMode);
+    let systemPrompt = getSystemPrompt(queryType, mentorMode);
     addStep('system_prompt_selected', { type: mentorMode ? 'mentor' : queryType });
 
     // Find relevant context from indexed project
@@ -35,18 +35,42 @@ async function askWithRAG(query, currentFile = null, options = {}) {
 
         // Get more chunks for visualization (show what was considered)
         const allChunks = await vectorStore.findRelevant(query, 10);
+
+        // Smart filtering:
+        // 1. If scores are very high (>0.85), it's likely a specific lookup -> use top 3
+        // 2. If scores are moderate (0.7-0.85), it's likely a concept search -> use top 5
+        // 3. If scores are low (<0.7), the query might be broad or unrelated -> use top 5 but warn LLM
+
+        const topScore = allChunks[0]?.score || 0;
+        let contextQuality = 'low';
+
+        if (topScore > 0.85) contextQuality = 'high';
+        else if (topScore > 0.70) contextQuality = 'medium';
+
         relevantChunks = allChunks.slice(0, 5);
         allScoredChunks = allChunks;
 
         addStep('chunks_retrieved', {
             retrieved: relevantChunks.length,
             considered: allScoredChunks.length,
-            topScore: relevantChunks[0]?.score?.toFixed(3)
+            topScore: topScore.toFixed(3),
+            quality: contextQuality
         });
 
-        logger.info(`Retrieved ${relevantChunks.length} relevant chunks`, {
-            topScore: relevantChunks[0]?.score?.toFixed(3)
+        logger.info(`Retrieved ${relevantChunks.length} chunks`, {
+            topScore: topScore.toFixed(3),
+            quality: contextQuality
         });
+
+        // Smart Prompt Injection based on retrieval quality
+        if (contextQuality === 'low') {
+            systemPrompt += `\n\n[IMPORTANT]: The retrieved context seems to have low relevance (Score: ${topScore.toFixed(2)}). 
+            - If the user is asking a broad high-level question (e.g., "how does this app work"), attempt to synthesize an answer from the snippets but acknowledge if you are missing the big picture.
+            - If the user is asking something specific and the context is missing, admit that you cannot find the specific code and answer based on general programming knowledge or ask for the file name.
+            - DO NOT hallucinate code that isn't in the context.`;
+        } else if (contextQuality === 'high') {
+            systemPrompt += `\n\n[IMPORTANT]: High-relevance code snippets found. The user is likely asking about specific implementation details. Be precise and quote the code constants/logic directly.`;
+        }
     }
 
     // Build context string
@@ -82,8 +106,6 @@ Provide a thorough, educational response. Reference specific files and line numb
     const elapsed = Date.now() - startTime;
 
     addStep('response_complete', { timeMs: elapsed });
-
-    logger.info(`Query completed`, { timeMs: elapsed, chunksUsed: relevantChunks.length });
 
     return {
         answer,
