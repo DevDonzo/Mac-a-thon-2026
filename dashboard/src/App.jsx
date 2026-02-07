@@ -644,9 +644,9 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="sources-grid">
                       {msg.sources.map((src, idx) => {
-                        const wsPath = msg.workspacePath || status?.workspace || '';
+                        const wsPath = msg.workspacePath || status?.workspace || '/Users/hparacha/Projects/Mac-a-thon-2026';
                         const relPath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
-                        const fullPath = wsPath ? `${wsPath}/${relPath}` : relPath;
+                        const fullPath = `${wsPath}/${relPath}`;
                         const fileName = relPath.split('/').pop();
                         const dirPath = relPath.split('/').slice(0, -1).join('/');
 

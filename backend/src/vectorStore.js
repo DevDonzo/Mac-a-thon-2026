@@ -251,7 +251,7 @@ class VectorStore {
                 this.indexedAt = data.indexedAt;
                 this.hasEmbeddings = data.hasEmbeddings;
                 this.workspacePath = data.workspacePath || null; // Load workspace path
-                logger.info('Vector store loaded from cache', { 
+                logger.info('Vector store loaded from cache', {
                     chunks: this.chunks.length,
                     workspace: this.workspacePath
                 });
@@ -266,10 +266,10 @@ class VectorStore {
      */
     splitIntoChunks(filePath, content) {
         const language = this.detectLanguage(filePath);
-        
+
         // Try AST-based chunking first for JavaScript/TypeScript
         const astChunks = astParser.createSymbolBasedChunks(filePath, content, language);
-        
+
         if (astChunks && astChunks.length > 0) {
             logger.info(`AST-based chunking: ${astChunks.length} chunks for ${filePath}`);
             return astChunks.map(chunk => ({
@@ -381,7 +381,7 @@ class VectorStore {
 
         // Get query embedding
         let queryEmbedding;
-        const embeddings = await generateEmbeddings([query]);
+        const embeddings = await generateEmbeddings([query], 'RETRIEVAL_QUERY');
 
         if (embeddings && embeddings[0]) {
             queryEmbedding = embeddings[0];
@@ -395,18 +395,36 @@ class VectorStore {
             score: cosineSimilarity(queryEmbedding, chunk.embedding)
         }));
 
-        // Filter and sort
+        // Filter
         const filtered = scored
             .filter(c => c.score >= config.rag.minRelevanceScore)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, topK);
+            .sort((a, b) => b.score - a.score);
 
-        logger.debug(`Found ${filtered.length} relevant chunks`, {
-            topScore: filtered[0]?.score.toFixed(3),
+        // Hybrid Search: If semantic results are few or low score, supplement with keyword search
+        if (filtered.length < 3 || (filtered[0]?.score < 0.6)) {
+            const keywordResults = this.keywordSearch(query, 5);
+
+            // Add unique keyword results to the list
+            for (const kwResult of keywordResults) {
+                if (!filtered.some(f => f.id === kwResult.id)) {
+                    // Give keyword matches a decent score to pass filtering if they match well
+                    kwResult.score = Math.max(kwResult.score, 0.5);
+                    filtered.push(kwResult);
+                }
+            }
+
+            // Re-sort
+            filtered.sort((a, b) => b.score - a.score);
+        }
+
+        const finalResults = filtered.slice(0, topK);
+
+        logger.info(`Found ${finalResults.length} relevant chunks (Semantic + Keyword)`, {
+            topScore: finalResults[0]?.score.toFixed(3),
             query: query.slice(0, 50)
         });
 
-        return filtered;
+        return finalResults;
     }
 
     /**
@@ -567,9 +585,9 @@ class VectorStore {
         // 4. Add symbol nodes for richer visualization
         const symbolNodes = Array.from(symbolMap.values());
 
-        return { 
-            nodes, 
-            edges, 
+        return {
+            nodes,
+            edges,
             symbols: symbolNodes, // NEW: Include symbol-level nodes
             stats: {
                 totalFiles: nodes.length,

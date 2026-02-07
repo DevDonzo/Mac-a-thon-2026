@@ -1,44 +1,62 @@
-# CodeSensei - AI Code Mentor with RAG
+# CodeSensei: The AI Architect & Mentor
+### *Beyond Autocomplete. Deep Architectural Intelligence.*
 
-An intelligent code analysis platform powered by Google Vertex AI and Gemini 1.5 Pro with RAG (Retrieval-Augmented Generation), featuring a VS Code extension, web dashboard, and conversational memory.
+[![Powered by Vertex AI](https://img.shields.io/badge/Powered%20by-Google%20Vertex%20AI-blue.svg)](https://cloud.google.com/vertex-ai)
+[![Memory by Backboard](https://img.shields.io/badge/Memory%20by-Backboard.io-lightgrey.svg)](https://backboard.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🚀 Why CodeSensei? (vs GitHub Copilot)
+CodeSensei is a Next-Gen Hybrid RAG code intelligence platform. While standard assistants like GitHub Copilot look at your code as a sequence of text tokens, CodeSensei treats your codebase as a living graph of logic, symbols, and dependencies.
 
-| Feature | Copilot | CodeSensei |
-|---------|---------|------------|
-| **Context** | Limited to open files | **Indexes your entire codebase** |
-| **Code Understanding** | Token-based | **Hybrid: AST + Semantic + Dependency Graph** |
-| **Transparency** | Black box | **See exactly which files influenced each response** |
-| **Privacy** | Code sent to Microsoft/OpenAI | **Your code stays in YOUR GCP project** |
-| **Learning** | Speed-optimized | **Mentor Mode for educational responses** |
-| **Visualization** | None | **Code DNA with symbol-level graphs + Architecture diagrams** |
-| **Memory** | No conversation history | **Persistent chat threads with Backboard.io** |
-| **Symbol Intelligence** | No | **Extracts functions, classes, and traces dependencies** |
+It doesn't just suggest the next line; it understands the architectural DNA of your entire project.
 
-## ✨ Features
+---
 
-### Core AI Features
-- **🎯 Hybrid Code Intelligence**: AST parsing + Semantic search + Dependency graphs = Deep code understanding
-- **🧬 Symbol-Level Indexing**: Extracts functions, classes, variables - not just raw text
-- **💬 Persistent Chat Memory**: Conversations saved with Backboard.io for context across sessions
-- **🔍 Code DNA Visualization**: Interactive graph with file AND symbol nodes (212+ symbols extracted)
-- **📐 Auto-Architecture Diagrams**: AI-generated Mermaid diagrams of your system architecture
-- **🔍 Accurate Code Explanation**: Direct analysis for "Explain Code" - no RAG confusion
-- **🔧 Refactoring Suggestions**: Get actionable refactoring recommendations
-- **🧪 Test Generation**: Automatically generate comprehensive unit tests
-- **📊 Live Indexing Status**: See real-time indexing progress without stats resetting
+## Why CodeSensei?
 
-### Dashboard Features
-- **Overview**: Project statistics and quick actions
-- **RAG Chat**: Web-based conversational interface with markdown rendering
-- **Code DNA**: Interactive dependency graph with zoom/pan controls
-- **Architecture**: Auto-generated system architecture visualization
+| Capability | GitHub Copilot | **CodeSensei** |
+|:---|:---:|:---:|
+| **Context Scope** | Limited to open files/tabs | **Full-Project Semantic Indexing** |
+| **Parsing Engine** | Token-based (NLP) | **Hybrid: AST + Semantic + Keyword** |
+| **Logic Awareness** | Predictive (Syntactic) | **Structural (Function/Class Boundaries)** |
+| **Transparency** | Black box | **Clickable Source Citations & RAG Viz** |
+| **Architectural Insight**| None | **Auto-Generated Mermaid Diagrams** |
+| **Relationship Mapping**| Flat file structure | **Interactive "Code DNA" Knowledge Graph** |
+| **Privacy Strategy** | Code sent to Microsoft/OpenAI | **Pinned to YOUR Private GCP Project** |
+| **Long-term Memory** | Per-session history | **Persistent cross-chat architectural memory** |
+| **Learning Engine** | Speed-oriented code generation | **Mentor Mode (Socratic Teaching & Best Practices)** |
 
-### What Makes Us Different
-- **🎓 Mentor Mode**: Toggle for educational, Socratic-style responses that teach WHY
-- **🔒 Privacy-First**: Code never leaves your Google Cloud project
-- **⚡ Real-time Updates**: File watching with incremental indexing
-- **🎨 Modern Dark UI**: Professional black/white theme with Geist font
+---
+
+## Premium Intelligence Features
+
+### Structural Intelligence (AST-Powered)
+Standard RAG breaks code at arbitrary character limits. CodeSensei uses Babel-based AST parsing to identify function boundaries, class definitions, and variable scopes. Your snippets are always logically complete.
+
+### Code DNA: The Knowledge Graph
+Explore your codebase through an interactive force-directed graph. Visualize how files import each other and how symbols (functions, classes) are interconnected.
+- **Red Nodes**: Critical Hubs (Heavily imported files)
+- **Blue Nodes**: Logic Providers
+- **Purple Nodes**: Classes & Data Structures
+
+### Auto-Architecture Generation
+Need to document a large project? One click generates a Mermaid.js System Diagram, grouping files into logical subgraphs (Backend, Frontend, API) based on real-world dependency analysis.
+
+### Mentor Mode: Level Up Your Team
+Toggle Mentor Mode to transform the AI from a code printer into a Senior Architect. It uses Socratic questioning and first-principles thinking to explain the reasoning behind design patterns, rather than just providing a fix.
+
+### Infinite Conversational Memory
+Powered by Backboard.io, CodeSensei remembers architectural decisions across different chat sessions. Your project constraints and global context persist, so you don't start from scratch every time you open the dashboard.
+
+---
+
+## The Tech Stack
+
+- **Large Language Model**: `gemini-2.0-flash-001` (Via Google Vertex AI)
+- **Vector Intelligence**: `text-embedding-004` (768-dimensional semantic vectors)
+- **Indexing Engine**: Hybrid AST + Keyword search with incremental file watching
+- **State Management**: Backboard.io persistent conversation threads
+- **Visuals**: React + Vite, Mermaid.js, Force-Graph-2D
+- **Host**: Your sovereign Google Cloud infrastructure
 
 
 ## Quick Start

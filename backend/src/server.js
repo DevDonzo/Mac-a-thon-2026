@@ -82,7 +82,7 @@ app.post('/api/index', async (req, res) => {
         // If files array is provided, index those files (from VS Code)
         if (files && Array.isArray(files) && files.length > 0) {
             logger.info(`Indexing request: ${projectId}`, { fileCount: files.length });
-            
+
             // Store the workspace path for dashboard re-indexing
             if (workspacePath) {
                 vectorStore.setWorkspacePath(workspacePath);
@@ -104,14 +104,14 @@ app.post('/api/index', async (req, res) => {
         // If no files provided, re-index the last workspace (from dashboard)
         logger.info(`Re-indexing last workspace for project: ${projectId}`);
         const lastWorkspace = vectorStore.getWorkspacePath();
-        
+
         if (lastWorkspace) {
             // Re-index from the stored workspace path
             const result = await vectorStore.indexWorkspaceDirectory(lastWorkspace);
-            
+
             indexingStatus.isIndexing = false;
             indexingStatus.currentFile = null;
-            
+
             return res.json({
                 success: true,
                 message: 'Workspace re-indexed successfully',
@@ -121,10 +121,10 @@ app.post('/api/index', async (req, res) => {
         } else {
             // Fallback to local directory if no workspace stored
             await vectorStore.indexLocalDirectory();
-            
+
             indexingStatus.isIndexing = false;
             indexingStatus.currentFile = null;
-            
+
             return res.json({
                 success: true,
                 message: 'Project auto-indexed successfully',
@@ -166,10 +166,10 @@ app.post('/api/ask', async (req, res) => {
         }
 
         const indexStats = vectorStore.getStats();
-        const activeFile = currentFile || (context && context[0] ? context[0] : null);
+        const activeFile = currentFile || null;
 
         let result;
-        
+
         // If skipRAG is true (e.g., for "Explain Code"), just use direct generation
         if (skipRAG || indexStats.totalChunks === 0) {
             result = await askDirect(prompt, context || [], { queryType, mentorMode });
@@ -297,7 +297,7 @@ app.get('/api/knowledge-graph', (req, res) => {
 
         // Use the enhanced dependency graph method
         const graph = vectorStore.getDependencyGraph();
-        
+
         res.json(graph);
     } catch (error) {
         logger.error('Knowledge graph generation failed', { error: error.message });
@@ -380,7 +380,7 @@ function start() {
                 if (config.project.ignorePaths.some(p => relativePath.includes(p))) return;
 
                 console.log(`📝 File changed: ${relativePath}. Incrementally updating...`);
-                
+
                 indexingStatus.isIndexing = true;
                 indexingStatus.currentFile = relativePath;
                 indexingStatus.lastUpdate = new Date().toISOString();

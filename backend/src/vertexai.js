@@ -50,7 +50,7 @@ function initializeVertexAI() {
  * Generate embeddings for text using Vertex AI
  * Uses the generative model to create semantic representations
  */
-async function generateEmbeddings(texts) {
+async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
     if (!vertexAI || !config.gcp.projectId) {
         logger.warn('Embeddings unavailable: Vertex AI not initialized');
         return null;
@@ -73,7 +73,7 @@ async function generateEmbeddings(texts) {
             const batch = texts.slice(i, i + batchSize);
             const instances = batch.map(text => ({
                 content: text.slice(0, 8000),
-                task_type: 'RETRIEVAL_DOCUMENT'
+                task_type: taskType
             }));
 
             try {
