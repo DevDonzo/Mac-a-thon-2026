@@ -7,18 +7,21 @@ An intelligent code analysis platform powered by Google Vertex AI and Gemini 1.5
 | Feature | Copilot | CodeSensei |
 |---------|---------|------------|
 | **Context** | Limited to open files | **Indexes your entire codebase** |
+| **Code Understanding** | Token-based | **Hybrid: AST + Semantic + Dependency Graph** |
 | **Transparency** | Black box | **See exactly which files influenced each response** |
 | **Privacy** | Code sent to Microsoft/OpenAI | **Your code stays in YOUR GCP project** |
 | **Learning** | Speed-optimized | **Mentor Mode for educational responses** |
-| **Visualization** | None | **Code DNA knowledge graph + Architecture diagrams** |
+| **Visualization** | None | **Code DNA with symbol-level graphs + Architecture diagrams** |
 | **Memory** | No conversation history | **Persistent chat threads with Backboard.io** |
+| **Symbol Intelligence** | No | **Extracts functions, classes, and traces dependencies** |
 
 ## ✨ Features
 
 ### Core AI Features
-- **🎯 RAG-Powered Context**: Every answer is grounded in YOUR actual code with semantic search
+- **🎯 Hybrid Code Intelligence**: AST parsing + Semantic search + Dependency graphs = Deep code understanding
+- **🧬 Symbol-Level Indexing**: Extracts functions, classes, variables - not just raw text
 - **💬 Persistent Chat Memory**: Conversations saved with Backboard.io for context across sessions
-- **🧬 Code DNA Visualization**: Interactive force-directed graph showing file dependencies and imports
+- **🔍 Code DNA Visualization**: Interactive graph with file AND symbol nodes (212+ symbols extracted)
 - **📐 Auto-Architecture Diagrams**: AI-generated Mermaid diagrams of your system architecture
 - **🔍 Accurate Code Explanation**: Direct analysis for "Explain Code" - no RAG confusion
 - **🔧 Refactoring Suggestions**: Get actionable refactoring recommendations
@@ -143,6 +146,8 @@ npm run dev
 
 ## How RAG Works
 
+CodeSensei uses a **hybrid multi-modal architecture** that goes beyond traditional RAG:
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     VS Code Extension                           │
@@ -153,27 +158,60 @@ npm run dev
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     CodeSensei Backend                          │
-│  1. Files split into semantic chunks (~500 chars)             │
-│  2. Embeddings generated via Vertex AI text-embedding-004     │
-│  3. Query embedded and similar chunks retrieved (cosine sim)  │
-│  4. If currentFile provided, prioritize chunks from that file │
-│  5. Context + user code injected into Gemini prompt           │
-│  6. Response saved to Backboard.io for conversation memory    │
+│                 CodeSensei Backend (Hybrid)                     │
+│  ╔══════════════════════════════════════════════════════════╗  │
+│  ║  1. AST PARSING (Babel)                                  ║  │
+│  ║     • Parse JS/TS/JSX/TSX with Babel                     ║  │
+│  ║     • Extract functions, classes, variables, imports     ║  │
+│  ║     • Chunk by symbol boundaries (not characters!)       ║  │
+│  ║     • Store symbol metadata with chunks                  ║  │
+│  ╚══════════════════════════════════════════════════════════╝  │
+│                                                                 │
+│  ╔══════════════════════════════════════════════════════════╗  │
+│  ║  2. SEMANTIC EMBEDDINGS (Vertex AI)                      ║  │
+│  ║     • text-embedding-004 for 768-d vectors               ║  │
+│  ║     • Batch processing (20 chunks/batch, 4x faster)      ║  │
+│  ║     • Cosine similarity search for relevance             ║  │
+│  ║     • File prioritization when code is highlighted       ║  │
+│  ╚══════════════════════════════════════════════════════════╝  │
+│                                                                 │
+│  ╔══════════════════════════════════════════════════════════╗  │
+│  ║  3. DEPENDENCY GRAPH                                     ║  │
+│  ║     • Parse import/export statements                     ║  │
+│  ║     • Build file-level dependency edges                  ║  │
+│  ║     • Symbol-to-file mappings                            ║  │
+│  ║     • Traverse related code context                      ║  │
+│  ╚══════════════════════════════════════════════════════════╝  │
+│                                                                 │
+│  4. Context + user code → Gemini → Backboard.io persistence   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Google Vertex AI                            │
 │  - text-embedding-004 for semantic embeddings (768-d vectors)  │
-│  - gemini-1.5-pro-002 for intelligent responses                │
+│  - gemini-2.0-flash-001 for intelligent responses              │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Why Hybrid is Better Than Traditional RAG
+
+Traditional RAG treats code like documents (character-based chunks). But code is a **graph**, not text:
+- Functions call other functions across files
+- Imports create dependency chains  
+- Context depends on symbol definitions, not proximity
+
+**Our Approach:**
+1. **AST Parsing** → Understand code structure (what is a function? where does it end?)
+2. **Symbol Extraction** → Track functions, classes, variables individually
+3. **Dependency Graph** → Map relationships (X imports Y, calls function Z)
+4. **Semantic Search** → Find relevant patterns and concepts
+5. **Hybrid Retrieval** → Combine all three for context-aware results
 
 ### RAG Modes
 
 1. **Explain Code (VS Code)**: Skips RAG, directly analyzes highlighted code for accuracy
-2. **RAG Chat (Dashboard/General)**: Uses full semantic search with file prioritization
+2. **RAG Chat (Dashboard/General)**: Uses full hybrid search with file prioritization
 3. **Hybrid**: When code is highlighted + RAG enabled, prioritizes current file chunks (7:3 ratio)
 
 ## Project Structure
@@ -184,8 +222,9 @@ Mac-a-thon-2026/
 │   ├── src/
 │   │   ├── server.js      # Express API with file watcher
 │   │   ├── ai.js          # AI query logic with RAG
-│   │   ├── vertexai.js    # Vertex AI client
-│   │   ├── vectorStore.js # RAG vector store with embeddings
+│   │   ├── vertexai.js    # Vertex AI client (embeddings + LLM)
+│   │   ├── vectorStore.js # RAG vector store with AST-based chunking
+│   │   ├── astParser.js   # Babel-based AST parser for symbol extraction
 │   │   ├── backboard.js   # Backboard.io integration
 │   │   ├── prompts.js     # System prompts
 │   │   ├── config.js      # Configuration
@@ -252,10 +291,13 @@ LOG_LEVEL=info                    # Default: info
 
 ### 1. Code DNA Visualization
 - Interactive force-directed graph using react-force-graph-2d
-- Shows file dependencies based on import statements
-- Node colors indicate file type (JS/TS: blue, JSON: green, etc.)
+- **Symbol-level nodes**: Toggle to show individual functions, classes, variables (212+ symbols)
+- **File-level nodes**: Shows dependencies based on import statements
+- Node colors indicate type (JS files: blue, Functions: blue, Classes: purple, Variables: green)
+- Interactive legend explaining node types
 - Zoom, pan, and click nodes to see details
 - Auto-generates on page load
+- Real-time stats: "X nodes • Y edges"
 
 ### 2. Architecture Diagrams
 - AI-generated Mermaid diagrams
@@ -311,11 +353,12 @@ Start the backend server: `cd backend && npm start`
 
 ## Technology Stack
 
-- **AI**: Google Vertex AI, Gemini 1.5 Pro, text-embedding-004
+- **AI**: Google Vertex AI, Gemini 2.0 Flash, text-embedding-004
+- **Code Intelligence**: Babel parser for AST, symbol extraction, dependency graphs
 - **Memory**: Backboard.io for conversation persistence
 - **Backend**: Node.js, Express, chokidar (file watching)
 - **Frontend**: VS Code Extension API, React + Vite
-- **Visualization**: react-force-graph-2d, Mermaid.js, react-zoom-pan-pinch
+- **Visualization**: react-force-graph-2d (with symbol nodes), Mermaid.js, react-zoom-pan-pinch
 - **UI**: Geist font, Lucide icons, dark theme
 
 ## License
