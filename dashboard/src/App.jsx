@@ -3,6 +3,7 @@ import './App.css';
 import ForceGraph2D from 'react-force-graph-2d';
 import mermaid from 'mermaid';
 import ReactMarkdown from 'react-markdown';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import {
   Activity,
   MessageSquare,
@@ -13,13 +14,15 @@ import {
   AlertCircle,
   Trash2,
   Search,
-  Send,
   Cpu,
   Shield,
   Zap,
   Code,
   Terminal,
-  ArrowRight
+  ArrowRight,
+  PanelRightOpen,
+  PanelRightClose,
+  Plus,
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000';
@@ -31,21 +34,27 @@ mermaid.initialize({
   flowchart: {
     curve: 'basis',
     htmlLabels: true,
-    useMaxWidth: false
+    useMaxWidth: true,
+    nodeSpacing: 60,
+    rankSpacing: 80,
+    padding: 20,
+    wrappingWidth: 200,
   },
   themeVariables: {
-    primaryColor: '#000000',
-    primaryTextColor: '#ededed',
-    primaryBorderColor: '#27272a',
-    lineColor: '#ededed',
-    secondaryColor: '#0a0a0a',
-    tertiaryColor: '#171717',
-    fontSize: '14px',
-    fontFamily: 'Inter',
-    nodeBorder: '#27272a',
-    mainBkg: '#0a0a0a',
-    textColor: '#ededed',
-  }
+    primaryColor: '#18181b',
+    primaryTextColor: '#fafafa',
+    primaryBorderColor: '#3f3f46',
+    lineColor: '#52525b',
+    secondaryColor: '#0f0f12',
+    tertiaryColor: '#18181b',
+    fontSize: '13px',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    nodeBorder: '#3f3f46',
+    mainBkg: '#18181b',
+    textColor: '#fafafa',
+    clusterBkg: 'rgba(39,39,42,0.4)',
+    clusterBorder: '#3f3f46',
+  },
 });
 
 function App() {
@@ -134,18 +143,18 @@ function App() {
             <div className="status-row">
               <span className="status-label">Backend</span>
               <span className="status-value">
-                {status.ready ? <CheckCircle size={14} className="text-success" /> : <XCircle size={14} className="text-error" />}
-                <span style={{ marginLeft: '8px' }}>{status.ready ? 'Online' : 'Offline'}</span>
+                {status.ready ? <CheckCircle size={13} className="icon-success" /> : <XCircle size={13} className="icon-error" />}
+                <span className="status-text">{status.ready ? 'Online' : 'Offline'}</span>
               </span>
             </div>
             <div className="status-row">
               <span className="status-label">Vertex AI</span>
               <span className="status-value">
-                {status.vertexAI === 'connected' ? <CheckCircle size={14} className="text-success" /> : <XCircle size={14} className="text-error" />}
-                <span style={{ marginLeft: '8px' }}>{status.vertexAI === 'connected' ? 'Ready' : 'Off'}</span>
+                {status.vertexAI === 'connected' ? <CheckCircle size={13} className="icon-success" /> : <XCircle size={13} className="icon-error" />}
+                <span className="status-text">{status.vertexAI === 'connected' ? 'Ready' : 'Off'}</span>
               </span>
             </div>
-            <div className="status-row" style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div className="status-row status-row-divider">
               <span className="status-label">Mentor Mode</span>
               <label className="toggle">
                 <input
@@ -162,96 +171,49 @@ function App() {
 
       {/* Main Content */}
       <main className="main" ref={mainRef}>
-        {/* Current Workspace Banner - At Top */}
-        <div style={{
-          padding: '12px 24px',
-          background: status.indexing?.isIndexing 
-            ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
-            : (status.workspace || stats.filesIndexed > 0) 
-              ? 'rgba(255, 255, 255, 0.03)'
-              : 'rgba(245, 158, 11, 0.1)',
-          border: `1px solid ${
-            status.indexing?.isIndexing 
-              ? 'rgba(59, 130, 246, 0.2)' 
-              : (status.workspace || stats.filesIndexed > 0)
-                ? 'rgba(255, 255, 255, 0.1)'
-                : 'rgba(245, 158, 11, 0.3)'
-          }`,
-          borderRadius: '8px',
-          marginBottom: '24px',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {status.indexing?.isIndexing ? (
-              <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
-            ) : (status.workspace || stats.filesIndexed > 0) ? (
-              <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
-            ) : (
-              <AlertCircle size={18} style={{ color: '#f59e0b', flexShrink: 0 }} />
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ 
-                fontSize: '0.75rem', 
-                color: 'var(--text-secondary)', 
-                textTransform: 'uppercase', 
-                letterSpacing: '0.05em',
-                marginBottom: '4px',
-                fontWeight: 600
-              }}>
-                {status.indexing?.isIndexing 
-                  ? 'Indexing' 
-                  : (status.workspace || stats.filesIndexed > 0)
-                    ? 'Indexed Workspace' 
-                    : 'No Workspace'}
-              </div>
-              <div style={{ 
-                fontSize: '0.9rem', 
-                color: 'var(--text-primary)', 
-                fontFamily: 'monospace',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
-                {status.workspace ? (
-                  <>
-                    {status.workspace}
-                    {status.indexing?.isIndexing && status.indexing.currentFile && (
-                      <>
-                        <span style={{ color: 'var(--text-secondary)', margin: '0 8px' }}>/</span>
-                        <span style={{ color: '#3b82f6' }}>
-                          {status.indexing.currentFile}
-                        </span>
-                      </>
-                    )}
-                  </>
-                ) : stats.filesIndexed > 0 ? (
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {stats.projectId || 'Project'} ({stats.filesIndexed} files indexed)
-                  </span>
-                ) : (
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    Open a workspace in VS Code and wait for auto-indexing
-                  </span>
-                )}
-              </div>
+        {/* Workspace Banner */}
+        <div className={`workspace-banner ${
+          status.indexing?.isIndexing ? 'indexing' : 
+          (status.workspace || stats.filesIndexed > 0) ? '' : 'empty'
+        }`}>
+          {status.indexing?.isIndexing ? (
+            <div className="spinner-sm" />
+          ) : (status.workspace || stats.filesIndexed > 0) ? (
+            <CheckCircle size={16} className="icon-success banner-icon" />
+          ) : (
+            <AlertCircle size={16} className="icon-warning banner-icon" />
+          )}
+          <div className="workspace-banner-info">
+            <div className="workspace-banner-label">
+              {status.indexing?.isIndexing ? 'Indexing' : 
+               (status.workspace || stats.filesIndexed > 0) ? 'Indexed Workspace' : 'No Workspace'}
             </div>
-            <div style={{ 
-              fontSize: '0.75rem', 
-              color: 'var(--text-secondary)',
-              padding: '4px 12px',
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '4px',
-              flexShrink: 0
-            }}>
-              {stats.filesIndexed || 0} files
+            <div className="workspace-banner-path">
+              {status.workspace ? (
+                <>
+                  {status.workspace}
+                  {status.indexing?.isIndexing && status.indexing.currentFile && (
+                    <span className="indexing-file">→ {status.indexing.currentFile}</span>
+                  )}
+                </>
+              ) : stats.filesIndexed > 0 ? (
+                <span className="text-secondary">
+                  {stats.projectId || 'Project'} ({stats.filesIndexed} files indexed)
+                </span>
+              ) : (
+                <span className="text-muted">Open a workspace in VS Code to begin</span>
+              )}
             </div>
+          </div>
+          <div className="workspace-banner-count">
+            {stats.filesIndexed || 0} files
           </div>
         </div>
 
         {!status.ready && !loading && (
-          <div className="card" style={{ borderLeft: '4px solid var(--text-primary)', background: 'var(--bg-secondary)' }}>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><XCircle size={20} /> Backend Disconnected</h3>
-            <p style={{ margin: '8px 0 0 0', opacity: 0.7 }}>Ensure the server is running on port 3000.</p>
+          <div className="card disconnected-card">
+            <h3 className="disconnected-title"><XCircle size={20} /> Backend Disconnected</h3>
+            <p className="disconnected-text">Ensure the server is running on port 3000.</p>
           </div>
         )}
 
@@ -323,7 +285,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
   return (
     <>
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="page-header-row">
           <div>
             <h1 className="page-title">Overview</h1>
             <p className="page-subtitle">
@@ -342,26 +304,12 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           </button>
         </div>
         {indexResult === 'success' && (
-          <div style={{ 
-            marginTop: '16px', 
-            padding: '12px', 
-            background: 'rgba(16, 185, 129, 0.15)', 
-            border: '1px solid rgba(16, 185, 129, 0.3)',
-            borderRadius: '6px',
-            color: '#6ee7b7'
-          }}>
+          <div className="alert-card success">
             ✓ Workspace indexed successfully! Refreshing...
           </div>
         )}
         {indexResult === 'error' && (
-          <div style={{ 
-            marginTop: '16px', 
-            padding: '12px', 
-            background: 'rgba(239, 68, 68, 0.15)', 
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            borderRadius: '6px',
-            color: '#fca5a5'
-          }}>
+          <div className="alert-card error">
             ✗ Indexing failed. Check backend logs.
           </div>
         )}
@@ -386,39 +334,38 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+      <div className="features-grid">
         <div className="card feature-card">
           <div className="feature-header">
-            <Search size={24} />
+            <Search size={20} />
             <h3>RAG Context</h3>
           </div>
-          <p>Retrieve relevant code from your project before answering. See exactly which files influenced each response.</p>
+          <p>Retrieves relevant code from your project before answering. See which files influenced each response.</p>
         </div>
 
         <div className="card feature-card">
           <div className="feature-header">
-            <GitGraph size={24} />
+            <GitGraph size={20} />
             <h3>Knowledge Graph</h3>
           </div>
-          <p>Interactive visualization of your codebase. Explore file relationships, dependencies, and architecture.</p>
+          <p>Interactive visualization of your codebase. Explore file relationships and architecture.</p>
         </div>
 
         <div className="card feature-card">
           <div className="feature-header">
-            <Code size={24} />
+            <Code size={20} />
             <h3>Source Citations</h3>
           </div>
-          <p>Every AI response includes clickable source citations. Jump directly to the exact file and line.</p>
+          <p>Every AI response includes clickable source citations. Jump to the exact file and line.</p>
         </div>
       </div>
 
-      {/* Privacy Hero Banner Moved to Bottom */}
-      <div className="privacy-hero" style={{ marginTop: '24px' }}>
+      <div className="privacy-hero">
         <div className="privacy-hero-content">
-          <div className="privacy-hero-icon"><Shield size={32} /></div>
+          <div className="privacy-hero-icon"><Shield size={28} /></div>
           <div>
             <h3>Enterprise-Grade Privacy</h3>
-            <p>Your code NEVER leaves your Google Cloud project. Full data sovereignty.</p>
+            <p>Your code never leaves your Google Cloud project. Full data sovereignty.</p>
           </div>
         </div>
         <div className="privacy-badges">
@@ -448,7 +395,6 @@ function RAGPlaygroundPage({ mentorMode, status }) {
   const [recentChats, setRecentChats] = useState([]);
   const [chatId, setChatId] = useState(Date.now());
   const [threadId, setThreadId] = useState(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef(null);
 
@@ -505,11 +451,13 @@ function RAGPlaygroundPage({ mentorMode, status }) {
     }
   };
 
-  const clearHistory = () => {
-    setRecentChats([]);
-    localStorage.removeItem('codesensei_chats');
-    startNewChat();
-    setConfirmClear(false);
+  const deleteChat = (chatIdToDelete) => {
+    const updated = recentChats.filter(c => c.id !== chatIdToDelete);
+    setRecentChats(updated);
+    localStorage.setItem('codesensei_chats', JSON.stringify(updated));
+    if (chatIdToDelete === chatId) {
+      startNewChat();
+    }
   };
 
   const startNewChat = async () => {
@@ -630,30 +578,29 @@ function RAGPlaygroundPage({ mentorMode, status }) {
 
   return (
     <>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">Chat</h1>
           <p className="page-subtitle">
             {mentorMode ? 'Mentor Mode Active' : 'Ask questions about your codebase'}
           </p>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={startNewChat}>
-          + New Chat
-        </button>
+        <div className="page-header-actions">
+          <button className="btn btn-secondary btn-sm" onClick={startNewChat}>
+            <Plus size={14} /> New Chat
+          </button>
+          <button
+            className="btn btn-secondary btn-sm btn-icon-only"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? 'Hide history' : 'Show history'}
+          >
+            {sidebarOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+          </button>
+        </div>
       </div>
 
       <div className="rag-layout">
-        {/* Chat Container */}
-        <div className="chat-container" style={{ width: sidebarOpen ? 'calc(100% - 300px)' : '100%' }}>
-          {/* Sidebar Toggle Button */}
-          <button 
-            className="sidebar-toggle-btn"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-          >
-            {sidebarOpen ? '→' : '←'}
-          </button>
-
+        <div className="chat-container">
           <div className="chat-messages">
             {messages.length === 0 && (
               <div className="empty-state">
@@ -666,28 +613,28 @@ function RAGPlaygroundPage({ mentorMode, status }) {
             {messages.map((msg, i) => (
               <div key={i} className={`message ${msg.role}`}>
                 <div className="message-avatar">
-                  {msg.role === 'user' ? <Activity size={18} /> : <Cpu size={18} />}
+                  {msg.role === 'user' ? <Activity size={16} /> : <Cpu size={16} />}
                 </div>
                 <div className="message-bubble">
                   <div className="message-content">
                     <ReactMarkdown
                       components={{
-                        code({ node, inline, className, children, ...props }) {
-                          return inline ? (
-                            <code className="inline-code" {...props}>
-                              {children}
-                            </code>
-                          ) : (
+                        code({ node, className, children, ...props }) {
+                          const isBlock = node?.position?.start?.line !== node?.position?.end?.line
+                            || String(children).includes('\n');
+                          return isBlock ? (
                             <pre className="code-block">
                               <code {...props}>{children}</code>
                             </pre>
+                          ) : (
+                            <code className="inline-code" {...props}>{children}</code>
                           );
                         },
-                        p: ({ children }) => <p style={{ marginBottom: '0.75rem' }}>{children}</p>,
-                        ul: ({ children }) => <ul style={{ marginLeft: '1.25rem', marginBottom: '0.75rem' }}>{children}</ul>,
-                        ol: ({ children }) => <ol style={{ marginLeft: '1.25rem', marginBottom: '0.75rem' }}>{children}</ol>,
-                        li: ({ children }) => <li style={{ marginBottom: '0.25rem' }}>{children}</li>,
-                        strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                        pre: ({ children }) => <>{children}</>,
+                        p: ({ children }) => <p className="md-p">{children}</p>,
+                        ul: ({ children }) => <ul className="md-list">{children}</ul>,
+                        ol: ({ children }) => <ol className="md-list md-ol">{children}</ol>,
+                        li: ({ children }) => <li className="md-li">{children}</li>,
                       }}
                     >
                       {msg.content}
@@ -697,22 +644,25 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="sources-grid">
                       {msg.sources.map((src, idx) => {
-                        // Use workspace path from message response, fallback to status
-                        const workspacePath = msg.workspacePath || status?.workspace || '';
-                        const fullPath = workspacePath ? `${workspacePath}/${src.path}` : src.path;
-                        
+                        const wsPath = msg.workspacePath || status?.workspace || '';
+                        const relPath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
+                        const fullPath = wsPath ? `${wsPath}/${relPath}` : relPath;
+                        const fileName = relPath.split('/').pop();
+                        const dirPath = relPath.split('/').slice(0, -1).join('/');
+
                         return (
-                          <div 
-                            key={idx} 
-                            className="mini-source-card" 
-                            onClick={() => {
-                              console.log('Opening file:', fullPath);
-                              window.open(`vscode://file/${fullPath}:${src.startLine}`);
-                            }}
+                          <a
+                            key={idx}
+                            className="mini-source-card"
+                            href={`vscode://file${fullPath.startsWith('/') ? '' : '/'}${fullPath}:${src.startLine || 1}`}
+                            title={fullPath}
                           >
-                            <div className="mini-source-path">{src.path}</div>
-                            <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Lines {src.lines}</div>
-                          </div>
+                            <div className="mini-source-path">📄 {fileName}</div>
+                            <div className="mini-source-lines">
+                              {dirPath && <span>{dirPath} · </span>}
+                              Lines {src.lines}
+                            </div>
+                          </a>
                         );
                       })}
                     </div>
@@ -722,7 +672,7 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                     <div className="message-meta">
                       {new Date(msg.timestamp || Date.now()).toLocaleTimeString()}
                     </div>
-                    <button 
+                    <button
                       className="message-delete-btn"
                       onClick={() => deleteMessage(i)}
                       title="Delete message"
@@ -736,7 +686,7 @@ function RAGPlaygroundPage({ mentorMode, status }) {
 
             {loading && retrievalSteps.length > 0 && (
               <div className="retrieval-indicator">
-                <div className="step-spinner"></div>
+                <div className="step-spinner" />
                 <span>{retrievalSteps.findLast(s => s.status === 'active')?.label || 'Thinking...'}</span>
               </div>
             )}
@@ -758,31 +708,21 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                 onClick={handleSend}
                 disabled={loading || !input.trim()}
               >
-                <ArrowRight size={20} />
+                <ArrowRight size={18} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* History Sidebar */}
         {sidebarOpen && (
           <aside className="rag-history-sidebar">
             <div className="history-header">
               <h3>Recent</h3>
-              {recentChats.length > 0 && !confirmClear && (
-                <button className="btn-icon" onClick={() => setConfirmClear(true)}>
-                  <Trash2 size={16} />
-                </button>
-              )}
-              {confirmClear && (
-                <div className="confirm-actions">
-                  <span>Sure?</span>
-                  <button className="confirm-btn yes" onClick={clearHistory}>Yes</button>
-                  <button className="confirm-btn no" onClick={() => setConfirmClear(false)}>No</button>
-                </div>
-              )}
             </div>
             <div className="history-list">
+              {recentChats.length === 0 && (
+                <div className="history-empty">No chats yet</div>
+              )}
               {recentChats.map((chat) => (
                 <div
                   key={chat.id}
@@ -790,8 +730,17 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                   onClick={() => loadPastChat(chat)}
                 >
                   <div className="history-query">{chat.query}</div>
-                  <div className="history-meta">
-                    <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <div className="history-item-footer">
+                    <span className="history-meta">
+                      {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button
+                      className="history-delete-btn"
+                      onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
+                      title="Delete chat"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -873,29 +822,23 @@ function CodeDNAPage() {
   return (
     <>
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="page-header-row">
           <div>
             <h1 className="page-title">Code DNA</h1>
             <p className="page-subtitle">
-              Interactive knowledge graph • {graphData.nodes.length} nodes • {graphData.links?.length || 0} edges
+              Interactive knowledge graph · {graphData.nodes.length} nodes · {graphData.links?.length || 0} edges
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={showSymbols} 
+          <div className="page-header-actions">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={showSymbols}
                 onChange={(e) => setShowSymbols(e.target.checked)}
-                style={{ cursor: 'pointer' }}
               />
               Show Symbols
             </label>
-            <button 
-              className="btn btn-secondary" 
-              onClick={loadGraph} 
-              disabled={loading} 
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
+            <button className="btn btn-secondary" onClick={loadGraph} disabled={loading}>
               <Activity size={16} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Rescanning...' : 'Refresh Graph'}
             </button>
@@ -904,38 +847,27 @@ function CodeDNAPage() {
       </div>
 
       <div className="codedna-container">
-        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#1a1a1a', position: 'relative' }}>
-          {/* Legend */}
-          <div style={{
-            position: 'absolute',
-            top: '16px',
-            right: '16px',
-            background: 'rgba(0, 0, 0, 0.8)',
-            padding: '12px 16px',
-            borderRadius: '6px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            fontSize: '0.8rem',
-            zIndex: 10
-          }}>
-            <div style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--text-primary)' }}>Legend</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6' }}></div>
+        <div className="card graph-card" ref={containerRef}>
+          <div className="graph-legend-overlay">
+            <div className="graph-legend-title">Legend</div>
+            <div className="graph-legend-items">
+              <div className="graph-legend-item">
+                <span className="graph-legend-dot" style={{ background: '#3b82f6' }} />
                 <span>JavaScript</span>
               </div>
               {showSymbols && (
                 <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }}></div>
-                    <span style={{ fontSize: '0.75rem' }}>Function</span>
+                  <div className="graph-legend-item sub">
+                    <span className="graph-legend-dot sm" style={{ background: '#3b82f6' }} />
+                    <span>Function</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8b5cf6' }}></div>
-                    <span style={{ fontSize: '0.75rem' }}>Class</span>
+                  <div className="graph-legend-item sub">
+                    <span className="graph-legend-dot sm" style={{ background: '#8b5cf6' }} />
+                    <span>Class</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
-                    <span style={{ fontSize: '0.75rem' }}>Variable</span>
+                  <div className="graph-legend-item sub">
+                    <span className="graph-legend-dot sm" style={{ background: '#10b981' }} />
+                    <span>Variable</span>
                   </div>
                 </>
               )}
@@ -954,12 +886,12 @@ function CodeDNAPage() {
               backgroundColor="#1a1a1a"
               onNodeClick={(node) => setSelectedNode(node)}
               cooldownTicks={100}
-              d3AlphaDecay={0.02}
-              d3VelocityDecay={0.3}
+              d3AlphaDecay={0.05}
+              d3VelocityDecay={0.4}
               d3Force={{
-                charge: { strength: -120 },
-                link: { distance: 30 },
-                center: { strength: 0.5 }
+                charge: { strength: -40 },
+                link: { distance: 20 },
+                center: { strength: 0.8 }
               }}
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = node.label;
@@ -1012,7 +944,7 @@ function CodeDNAPage() {
               <h3>{selectedNode.label}</h3>
               <div className="node-info">
                 <p><strong>Path:</strong> {selectedNode.fullPath}</p>
-                <p><strong>Language:</strong> <span style={{ color: selectedNode.color }}>{selectedNode.language}</span></p>
+                <p><strong>Language:</strong> <span className="node-lang-color" style={{ color: selectedNode.color }}>{selectedNode.language}</span></p>
                 <p><strong>Lines:</strong> {selectedNode.lines}</p>
                 <p><strong>Chunks:</strong> {selectedNode.chunks}</p>
 
@@ -1059,10 +991,6 @@ function CodeDNAPage() {
 }
 
 
-// Initialize mermaid logic moved to top of file for theme consistency
-
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
-
 function Mermaid({ chart }) {
   const ref = useRef(null);
 
@@ -1076,19 +1004,19 @@ function Mermaid({ chart }) {
   return (
     <div className="mermaid-wrapper">
       <TransformWrapper
-        initialScale={0.8}
+        initialScale={0.75}
         minScale={0.3}
-        maxScale={2}
+        maxScale={2.5}
         centerOnInit={true}
         limitToBounds={false}
         panning={{ disabled: false }}
-        wheel={{ step: 0.1 }}
+        wheel={{ step: 0.08 }}
       >
         <TransformComponent
-          wrapperStyle={{ width: "100%", height: "100%", overflow: "visible" }}
-          contentStyle={{ width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}
+          wrapperStyle={{ width: '100%', height: '100%' }}
+          contentStyle={{ width: '100%', minHeight: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
         >
-          <div ref={ref} className="mermaid" style={{ cursor: 'grab' }}>
+          <div ref={ref} className="mermaid">
             {chart}
           </div>
         </TransformComponent>
@@ -1106,10 +1034,9 @@ function ArchitecturePage() {
     try {
       const res = await fetch(`${API_URL}/api/architecture`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
-
       setDiagram((data.diagram || '').trim());
     } catch (e) {
       console.error('Failed to generate diagram:', e);
@@ -1118,7 +1045,6 @@ function ArchitecturePage() {
     setLoading(false);
   };
 
-  // Auto-generate on mount
   useEffect(() => {
     generateDiagram();
   }, []);
@@ -1126,17 +1052,12 @@ function ArchitecturePage() {
   return (
     <>
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="page-header-row">
           <div>
             <h1 className="page-title">Architecture</h1>
-            <p className="page-subtitle">Automatic system design visualization powered by Gemini</p>
+            <p className="page-subtitle">System design visualization powered by Gemini</p>
           </div>
-          <button
-            className="btn btn-secondary"
-            onClick={generateDiagram}
-            disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
+          <button className="btn btn-secondary" onClick={generateDiagram} disabled={loading}>
             <Activity size={16} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Regenerating...' : 'Refresh Diagram'}
           </button>
@@ -1151,7 +1072,7 @@ function ArchitecturePage() {
             <div className={`architecture-empty ${loading ? 'loading' : ''}`}>
               {loading ? (
                 <div className="analysis-indicator">
-                  <div className="pulse-circle"></div>
+                  <div className="pulse-circle" />
                   <p>Gemini is mapping dependencies and grouping components...</p>
                 </div>
               ) : (
@@ -1169,98 +1090,6 @@ function ArchitecturePage() {
   );
 }
 
-function SettingsPage() {
-  return (
-    <>
-      <div className="page-header">
-        <h1 className="page-title">Settings</h1>
-        <p className="page-subtitle">Configure your CodeSensei instance</p>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">
-            Configuration
-          </h3>
-        </div>
-
-        <div style={{ display: 'grid', gap: '24px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              Backend URL
-            </label>
-            <input
-              type="text"
-              value="http://localhost:3000"
-              readOnly
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              GCP Project ID
-            </label>
-            <input
-              type="text"
-              placeholder="Set in backend/.env"
-              readOnly
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Privacy Section */}
-      <div className="card privacy-section">
-        <div className="card-header">
-          <h3 className="card-title">
-            Privacy & Security
-          </h3>
-        </div>
-        <div className="privacy-info">
-          <div className="privacy-item">
-            <span className="privacy-check">✓</span>
-            <div>
-              <strong>Code stays in your GCP project</strong>
-              <p>Unlike Copilot, your code never leaves your own Google Cloud infrastructure.</p>
-            </div>
-          </div>
-          <div className="privacy-item">
-            <span className="privacy-check">✓</span>
-            <div>
-              <strong>No third-party data sharing</strong>
-              <p>CodeSensei uses Vertex AI within YOUR project. No external APIs receive your code.</p>
-            </div>
-          </div>
-          <div className="privacy-item">
-            <span className="privacy-check">✓</span>
-            <div>
-              <strong>Full audit trail</strong>
-              <p>All queries are logged within your GCP environment for compliance.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
 function getLanguageColor(lang) {
   const colors = {
     javascript: '#f7df1e',
@@ -1270,7 +1099,7 @@ function getLanguageColor(lang) {
     go: '#00add8',
     rust: '#dea584',
     ruby: '#cc342d',
-    default: '#818cf8'
+    default: '#818cf8',
   };
   return colors[lang] || colors.default;
 }

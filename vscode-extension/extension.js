@@ -397,8 +397,9 @@ function showResultPanel(data, query, elapsed) {
   const answer = data.answer || '';
   const sources = data.sources || [];
   const metadata = data.metadata || {};
+  const workspacePath = data.workspacePath || '';
 
-  panel.webview.html = getWebviewContent(answer, query, elapsed, sources, metadata);
+  panel.webview.html = getWebviewContent(answer, query, elapsed, sources, metadata, workspacePath);
 
   // Handle messages from webview (for jump-to-source)
   panel.webview.onDidReceiveMessage(async message => {
@@ -422,7 +423,7 @@ function showResultPanel(data, query, elapsed) {
   });
 }
 
-function getWebviewContent(answer, query, elapsed, sources, metadata) {
+function getWebviewContent(answer, query, elapsed, sources, metadata, workspacePath = '') {
   // Convert markdown to HTML
   const formattedAnswer = formatMarkdown(answer);
 
@@ -432,10 +433,12 @@ function getWebviewContent(answer, query, elapsed, sources, metadata) {
           <span class="icon">📚</span>
           <span>Sources Used (${sources.length} chunks) - Click to jump!</span>
         </div>
-        ${sources.map(s => `
+        ${sources.map(s => {
+          const displayPath = workspacePath ? `${workspacePath}/${s.path}` : s.path;
+          return `
           <div class="source-item clickable" onclick="jumpToSource('${s.path}', ${s.startLine || 1})">
             <div class="source-main">
-              <span class="source-path">📄 ${s.path}</span>
+              <span class="source-path">📄 ${displayPath}</span>
               <span class="source-relevance">${s.relevance}</span>
             </div>
             <div class="source-details">
@@ -444,7 +447,8 @@ function getWebviewContent(answer, query, elapsed, sources, metadata) {
               <span class="jump-hint">Click to open →</span>
             </div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
        </div>`
     : '';
 

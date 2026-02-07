@@ -33,19 +33,20 @@ Provide specific line references and concrete fixes.`,
 
 Provide before/after code examples where helpful.`,
 
-    ARCHITECTURE_PROMPT: `Analyze the project structure and generate a high-detail Mermaid diagram.
-Focus on being "zoomed in" by grouping related files into logical subgraphs (e.g., Backend, Frontend, API, Database, Internal Libs).
+    ARCHITECTURE_PROMPT: `Analyze the project structure and generate a Mermaid diagram.
+Group related files into logical subgraphs (e.g., Backend, Frontend, API, Database).
 
-GUIDELINES:
-1. Use 'graph LR' (Left-to-Right) for a more readable, zoomed-in layout.
-2. Group files into subgraphs based on their folder structure.
-3. Use specific node shapes: [Node] for files, {{Node}} for processes, [[Node]] for databases.
-4. Highlight the main entry points.
-5. Use consistent monochromatic styling.
+CRITICAL RULES:
+1. Use 'graph LR' layout.
+2. Keep ALL node labels SHORT — max 2-3 words. Use abbreviations (e.g., "Auth Svc", "DB Pool", "API Routes").
+3. Do NOT use long file paths or full function names as labels.
+4. Group files into subgraphs by folder/responsibility.
+5. Node shapes: [Label] for modules, {{Label}} for processes, [(Label)] for databases.
+6. Keep the diagram to 15-25 nodes max for readability.
+7. Do NOT use special characters (parentheses, quotes, colons) inside node labels — they break Mermaid syntax.
 
-Output ONLY valid Mermaid syntax.
+Output ONLY valid Mermaid syntax with no markdown fences.
 Example:
-\`\`\`mermaid
 graph LR
     subgraph Frontend
         App --> Components
@@ -55,8 +56,7 @@ graph LR
         Server --> Routes
         Routes --> Logic
     end
-    Backend --> Database[(Storage)]
-\`\`\``,
+    Backend --> DB[(Storage)]`,
 
     TEST_PROMPT: `Generate comprehensive unit tests for this code. Include:
 1. Happy path tests for main functionality
