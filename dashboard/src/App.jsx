@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import ForceGraph2D from 'react-force-graph-2d';
 import mermaid from 'mermaid';
+import ReactMarkdown from 'react-markdown';
 import {
   Activity,
   MessageSquare,
@@ -51,12 +52,20 @@ function App() {
   const [status, setStatus] = useState({ ready: false, index: null });
   const [loading, setLoading] = useState(true);
   const [mentorMode, setMentorMode] = useState(false);
+  const mainRef = useRef(null);
 
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Scroll to top when tab changes
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
 
   const fetchStatus = async () => {
     try {
@@ -151,7 +160,7 @@ function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="main">
+      <main className="main" ref={mainRef}>
         {!status.ready && !loading && (
           <div className="card" style={{ borderLeft: '4px solid var(--text-primary)', background: 'var(--bg-secondary)' }}>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><XCircle size={20} /> Backend Disconnected</h3>
@@ -186,6 +195,39 @@ function NavItem({ icon, label, active, onClick }) {
 }
 
 function OverviewPage({ stats, status, loading, mentorMode }) {
+  const [indexing, setIndexing] = useState(false);
+  const [indexResult, setIndexResult] = useState(null);
+
+  const handleIndexProject = async () => {
+    setIndexing(true);
+    setIndexResult(null);
+    
+    try {
+      // Clear existing index first
+      await fetch(`${API_URL}/api/clear`, { method: 'POST' });
+      
+      // Trigger re-index
+      const response = await fetch(`${API_URL}/api/index`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 'Mac-a-thon-2026',
+          files: [] // Empty array triggers auto-index
+        })
+      });
+      
+      const data = await response.json();
+      setIndexResult(data.success ? 'success' : 'error');
+      
+      // Refresh page after 2 seconds
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (error) {
+      setIndexResult('error');
+    } finally {
+      setIndexing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -198,9 +240,63 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Overview</h1>
-        <p className="page-subtitle">System status and project metrics.</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">Overview</h1>
+            <p className="page-subtitle">System status and project metrics.</p>
+          </div>
+          <button 
+            className="btn btn-primary"
+            onClick={handleIndexProject}
+            disabled={indexing}
+          >
+            {indexing ? 'Indexing...' : 'Re-Index Project'}
+          </button>
+        </div>
+        {indexResult === 'success' && (
+          <div style={{ 
+            marginTop: '16px', 
+            padding: '12px', 
+            background: 'rgba(16, 185, 129, 0.15)', 
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: '6px',
+            color: '#6ee7b7'
+          }}>
+            ✓ Project indexed successfully! Refreshing...
+          </div>
+        )}
+        {indexResult === 'error' && (
+          <div style={{ 
+            marginTop: '16px', 
+            padding: '12px', 
+            background: 'rgba(239, 68, 68, 0.15)', 
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '6px',
+            color: '#fca5a5'
+          }}>
+            ✗ Indexing failed. Check backend logs.
+          </div>
+        )}
       </div>
+
+      {/* Indexing Indicator */}
+      {status.indexing?.isIndexing && (
+        <div style={{
+          padding: '12px 16px',
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '6px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <div className="spinner-sm"></div>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            Code change detected, updating index: {status.indexing.currentFile || 'processing...'}
+          </span>
+        </div>
+      )}
 
       <div className="stats-grid">
         <StatCard
@@ -282,6 +378,7 @@ function RAGPlaygroundPage({ mentorMode }) {
   const [retrievalSteps, setRetrievalSteps] = useState([]);
   const [recentChats, setRecentChats] = useState([]);
   const [chatId, setChatId] = useState(Date.now());
+  const [threadId, setThreadId] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const messagesEndRef = useRef(null);
 
@@ -290,7 +387,10 @@ function RAGPlaygroundPage({ mentorMode }) {
   };
 
   useEffect(() => {
-    scrollToBottom();
+    // Only scroll if there are messages (don't scroll on initial mount)
+    if (messages.length > 0) {
+      scrollToBottom();
+    }
   }, [messages, retrievalSteps]);
 
   useEffect(() => {
@@ -316,7 +416,8 @@ function RAGPlaygroundPage({ mentorMode }) {
       preview: lastAiMsg.substring(0, 60) + '...',
       timestamp: new Date().toISOString(),
       messages: newMessages,
-      mentorMode
+      mentorMode,
+      threadId // Store the Backboard threadId
     };
 
     const others = recentChats.filter(c => c.id !== chatId);
@@ -327,6 +428,7 @@ function RAGPlaygroundPage({ mentorMode }) {
 
   const loadPastChat = (chat) => {
     setChatId(chat.id);
+    setThreadId(chat.threadId || null);
     setMessages(chat.messages || []);
     if (!chat.messages) {
       setMessages([{ role: 'user', content: chat.query, timestamp: chat.timestamp }]);
@@ -340,12 +442,28 @@ function RAGPlaygroundPage({ mentorMode }) {
     setConfirmClear(false);
   };
 
-  const startNewChat = () => {
+  const startNewChat = async () => {
     setChatId(Date.now());
     setMessages([]);
     setRetrievalSteps([]);
+    setThreadId(null);
     setInput('');
+
+    // Fetch new Backboard thread if enabled
+    try {
+      const res = await fetch(`${API_URL}/api/chat/thread`, { method: 'POST' });
+      const data = await res.json();
+      if (data.id) setThreadId(data.id);
+    } catch (e) {
+      console.error('Failed to init thread', e);
+    }
   };
+
+  useEffect(() => {
+    if (messages.length === 0 && !threadId) {
+      startNewChat();
+    }
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -383,7 +501,8 @@ function RAGPlaygroundPage({ mentorMode }) {
         body: JSON.stringify({
           prompt: userMsg.content,
           context: newHistory.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n'),
-          mentorMode
+          mentorMode,
+          threadId // Pass threadId for memory
         })
       });
 
@@ -394,12 +513,18 @@ function RAGPlaygroundPage({ mentorMode }) {
 
       const data = await res.json();
 
+      // Sync threadId if backend auto-created it
+      if (data.threadId && data.threadId !== threadId) {
+        setThreadId(data.threadId);
+      }
+
       const aiMsg = {
         role: 'assistant',
         content: data.answer,
         sources: data.sources,
         timestamp: new Date().toISOString(),
-        metadata: data.metadata
+        metadata: data.metadata,
+        threadId: data.threadId // Keep record
       };
 
       const finalMessages = [...newHistory, aiMsg];
@@ -417,6 +542,12 @@ function RAGPlaygroundPage({ mentorMode }) {
       setLoading(false);
       setRetrievalSteps([]);
     }
+  };
+
+  const deleteMessage = (index) => {
+    const updated = messages.filter((_, i) => i !== index);
+    setMessages(updated);
+    saveToHistory(updated);
   };
 
   const handleKeyDown = (e) => {
@@ -459,7 +590,28 @@ function RAGPlaygroundPage({ mentorMode }) {
                 </div>
                 <div className="message-bubble">
                   <div className="message-content">
-                    {msg.content}
+                    <ReactMarkdown
+                      components={{
+                        code({ node, inline, className, children, ...props }) {
+                          return inline ? (
+                            <code className="inline-code" {...props}>
+                              {children}
+                            </code>
+                          ) : (
+                            <pre className="code-block">
+                              <code {...props}>{children}</code>
+                            </pre>
+                          );
+                        },
+                        p: ({ children }) => <p style={{ marginBottom: '0.75rem' }}>{children}</p>,
+                        ul: ({ children }) => <ul style={{ marginLeft: '1.25rem', marginBottom: '0.75rem' }}>{children}</ul>,
+                        ol: ({ children }) => <ol style={{ marginLeft: '1.25rem', marginBottom: '0.75rem' }}>{children}</ol>,
+                        li: ({ children }) => <li style={{ marginBottom: '0.25rem' }}>{children}</li>,
+                        strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
 
                   {msg.sources && msg.sources.length > 0 && (
@@ -473,8 +625,17 @@ function RAGPlaygroundPage({ mentorMode }) {
                     </div>
                   )}
 
-                  <div className="message-meta">
-                    {new Date(msg.timestamp || Date.now()).toLocaleTimeString()}
+                  <div className="message-footer">
+                    <div className="message-meta">
+                      {new Date(msg.timestamp || Date.now()).toLocaleTimeString()}
+                    </div>
+                    <button 
+                      className="message-delete-btn"
+                      onClick={() => deleteMessage(i)}
+                      title="Delete message"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -594,7 +755,7 @@ function CodeDNAPage() {
       </div>
 
       <div className="codedna-container">
-        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#0f172a' }}>
+        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#1a1a1a' }}>
           {graphData.nodes.length > 0 ? (
             <ForceGraph2D
               width={containerRef.current ? containerRef.current.clientWidth : 800}
@@ -604,7 +765,7 @@ function CodeDNAPage() {
               nodeColor="color"
               nodeRelSize={6}
               linkColor={() => 'rgba(255,255,255,0.2)'}
-              backgroundColor="#0f172a"
+              backgroundColor="#1a1a1a"
               onNodeClick={(node) => setSelectedNode(node)}
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = node.label;

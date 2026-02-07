@@ -105,7 +105,6 @@ class VectorStore {
 
             const fileData = files.map(f => {
                 const fullPath = path.join(rootPath, f);
-                // Return relative path for display, but need content
                 try {
                     return {
                         path: f,
@@ -121,6 +120,58 @@ class VectorStore {
             logger.error('Auto-indexing failed', { error: error.message });
             return { success: false, error: error.message };
         }
+    }
+
+    /**
+     * Update a single file in the index
+     */
+    async updateFile(relativePath, content) {
+        if (!content || content.trim().length === 0) {
+            // If file is empty or deleted, remove its chunks
+            this.chunks = this.chunks.filter(c => c.path !== relativePath);
+            this.save();
+            return { success: true, removed: true };
+        }
+
+        logger.info(`Updating indexed file: ${relativePath}`);
+
+        // 1. Remove old chunks for this file
+        this.chunks = this.chunks.filter(c => c.path !== relativePath);
+
+        // 2. Generate new chunks
+        const newChunks = this.splitIntoChunks(relativePath, content);
+        if (newChunks.length === 0) {
+            this.save();
+            return { success: true };
+        }
+
+        // 3. Generate embeddings for new chunks
+        const texts = newChunks.map(c => c.text);
+        const embeddings = await generateEmbeddings(texts);
+
+        if (embeddings && embeddings.length === newChunks.length) {
+            for (let i = 0; i < newChunks.length; i++) {
+                this.chunks.push({
+                    ...newChunks[i],
+                    embedding: embeddings[i],
+                    id: `chunk_${relativePath}_${Date.now()}_${i}`
+                });
+            }
+            this.hasEmbeddings = true;
+        } else {
+            // Fallback
+            for (let i = 0; i < newChunks.length; i++) {
+                this.chunks.push({
+                    ...newChunks[i],
+                    embedding: createSimpleEmbedding(newChunks[i].text),
+                    id: `chunk_${relativePath}_${Date.now()}_${i}`
+                });
+            }
+        }
+
+        this.indexedAt = new Date().toISOString();
+        this.save();
+        return { success: true };
     }
 
     save() {

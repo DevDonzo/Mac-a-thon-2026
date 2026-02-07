@@ -2,6 +2,8 @@ const { generateContent, isReady } = require('./vertexai');
 const vectorStore = require('./vectorStore');
 const prompts = require('./prompts');
 const logger = require('./logger');
+const backboard = require('./backboard');
+const { config } = require('./config');
 
 /**
  * RAG-powered query with context retrieval
@@ -101,14 +103,28 @@ Provide a thorough, educational response. Reference specific files and line numb
 
     addStep('generating_response');
 
-    // Query Gemini
-    const answer = await generateContent(fullPrompt);
+    // Query Gemini (Directly or via Backboard)
+    let answer;
+    let backboardThreadId = options.threadId;
+
+    if (config.backboard.enabled) {
+        // Use Backboard for conversation + persistent memory
+        // Thread ID can be passed from the frontend in options
+        const result = await backboard.sendMessage(fullPrompt, options.threadId);
+        answer = result.answer;
+        backboardThreadId = result.threadId; // Get the ID (might be newly created)
+    } else {
+        // Direct Vertex AI call
+        answer = await generateContent(fullPrompt);
+    }
+
     const elapsed = Date.now() - startTime;
 
-    addStep('response_complete', { timeMs: elapsed });
+    addStep('response_complete', { timeMs: elapsed, engine: config.backboard.enabled ? 'backboard' : 'vertexai' });
 
     return {
         answer,
+        threadId: backboardThreadId, // Return the ID so frontend can sync
         sources: relevantChunks.map(c => ({
             path: c.path,
             lines: `${c.startLine}-${c.endLine}`,
@@ -141,6 +157,7 @@ Provide a thorough, educational response. Reference specific files and line numb
  */
 async function askDirect(query, context = [], options = {}) {
     const { queryType = 'general' } = options;
+    const startTime = Date.now();
     const systemPrompt = getSystemPrompt(queryType);
 
     const contextStr = context.map(c =>
@@ -155,12 +172,29 @@ ${contextStr || 'No code provided.'}
 USER QUERY:
 ${query}`;
 
-    const answer = await generateContent(fullPrompt);
+    // Query Gemini (Directly or via Backboard)
+    let answer;
+    let backboardThreadId = options.threadId;
+
+    if (config.backboard.enabled) {
+        const result = await backboard.sendMessage(fullPrompt, options.threadId);
+        answer = result.answer;
+        backboardThreadId = result.threadId;
+    } else {
+        answer = await generateContent(fullPrompt);
+    }
+
+    const elapsed = Date.now() - startTime;
 
     return {
         answer,
+        threadId: backboardThreadId,
         sources: [],
-        metadata: { mode: 'direct' }
+        metadata: {
+            mode: 'direct',
+            timeMs: elapsed,
+            engine: config.backboard.enabled ? 'backboard' : 'vertexai'
+        }
     };
 }
 

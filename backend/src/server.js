@@ -6,12 +6,20 @@ const { config, validateConfig } = require('./config');
 const { initializeVertexAI, isReady } = require('./vertexai');
 const { askWithRAG, askDirect, analyzeCode, suggestRefactor, generateTests, generateArchitecture } = require('./ai');
 const vectorStore = require('./vectorStore');
+const backboard = require('./backboard');
 const logger = require('./logger');
 const chokidar = require('chokidar');
 const path = require('path');
 const fs = require('fs');
 
 const app = express();
+
+// Indexing status tracking
+let indexingStatus = {
+    isIndexing: false,
+    currentFile: null,
+    lastUpdate: null
+};
 
 // Middleware
 app.use(cors({
@@ -41,7 +49,8 @@ app.get('/health', (req, res) => {
         service: 'CodeSensei Backend',
         version: '1.0.0',
         vertexAI: isReady() ? 'connected' : 'not configured',
-        index: vectorStore.getStats()
+        index: vectorStore.getStats(),
+        indexing: indexingStatus
     });
 });
 
@@ -49,7 +58,8 @@ app.get('/health', (req, res) => {
 app.get('/api/status', (req, res) => {
     res.json({
         ready: isReady(),
-        index: vectorStore.getStats()
+        index: vectorStore.getStats(),
+        indexing: indexingStatus
     });
 });
 
@@ -62,13 +72,36 @@ app.post('/api/index', async (req, res) => {
             return res.status(400).json({ error: 'projectId is required' });
         }
 
-        if (!files || !Array.isArray(files)) {
-            return res.status(400).json({ error: 'files array is required' });
+        indexingStatus.isIndexing = true;
+        indexingStatus.currentFile = 'Indexing project...';
+        indexingStatus.lastUpdate = new Date().toISOString();
+
+        // If files array is empty, trigger auto-index of local directory
+        if (!files || files.length === 0) {
+            logger.info(`Auto-indexing request for project: ${projectId}`);
+            await vectorStore.indexLocalDirectory();
+            
+            indexingStatus.isIndexing = false;
+            indexingStatus.currentFile = null;
+            
+            return res.json({
+                success: true,
+                message: 'Project auto-indexed successfully',
+                stats: vectorStore.getStats()
+            });
+        }
+
+        if (!Array.isArray(files)) {
+            indexingStatus.isIndexing = false;
+            return res.status(400).json({ error: 'files must be an array' });
         }
 
         logger.info(`Indexing request: ${projectId}`, { fileCount: files.length });
 
         const result = await vectorStore.indexProject(projectId, files);
+
+        indexingStatus.isIndexing = false;
+        indexingStatus.currentFile = null;
 
         res.json({
             success: result.success,
@@ -77,6 +110,8 @@ app.post('/api/index', async (req, res) => {
             stats: vectorStore.getStats()
         });
     } catch (error) {
+        indexingStatus.isIndexing = false;
+        indexingStatus.currentFile = null;
         logger.error('Indexing failed', { error: error.message, stack: error.stack });
         res.status(500).json({
             error: 'Indexing failed',
@@ -85,29 +120,39 @@ app.post('/api/index', async (req, res) => {
     }
 });
 
+// --- AI Analysis Routes ---
+
+app.post('/api/chat/thread', async (req, res) => {
+    try {
+        if (!config.backboard.enabled) {
+            return res.json({ id: 'local-' + Date.now() });
+        }
+        const threadId = await backboard.createThread();
+        res.json({ id: threadId });
+    } catch (e) {
+        res.status(500).json({ status: 'error', message: e.message });
+    }
+});
+
 // Main query endpoint
 app.post('/api/ask', async (req, res) => {
     try {
-        const { prompt, context, queryType = 'general', mentorMode = false } = req.body;
+        const { prompt, context, currentFile, mentorMode, threadId, queryType = 'general' } = req.body;
 
         if (!prompt) {
-            return res.status(400).json({ error: 'prompt is required' });
+            return res.status(400).json({ status: 'error', message: 'Prompt is required' });
         }
 
-        if (!isReady()) {
-            return res.status(503).json({
-                error: 'Vertex AI not configured',
-                message: 'Set GCP_PROJECT_ID in backend/.env and restart the server'
-            });
-        }
-
-        // Determine if we should use RAG
         const indexStats = vectorStore.getStats();
-        const currentFile = context && context[0] ? context[0] : null;
+        const activeFile = currentFile || (context && context[0] ? context[0] : null);
 
         let result;
         if (indexStats.totalChunks > 0) {
-            result = await askWithRAG(prompt, currentFile, { queryType, mentorMode });
+            result = await askWithRAG(prompt, activeFile, {
+                queryType,
+                mentorMode,
+                threadId
+            });
         } else {
             result = await askDirect(prompt, context || [], { queryType, mentorMode });
         }
@@ -391,24 +436,35 @@ function start() {
             // Setup File Watcher for Real-time RAG
             const rootPath = path.resolve(__dirname, config.project.root);
             const watcher = chokidar.watch(rootPath, {
-                ignored: [/(^|[\/\\])\../, ...config.project.ignorePaths.map(p => `**/${p}/**`)],
+                ignored: [
+                    /(^|[\/\\])\../, // dots files
+                    ...config.project.ignorePaths.map(p => `**/${p}/**`),
+                    ...config.project.ignorePaths.map(p => `**/${p}`) // ignore the file itself
+                ],
                 persistent: true,
                 ignoreInitial: true
             });
 
             watcher.on('change', async (filePath) => {
                 const relativePath = path.relative(rootPath, filePath);
-                console.log(`📝 File changed: ${relativePath}. Re-indexing...`);
+                // Check if file is in ignore list again just in case
+                if (config.project.ignorePaths.some(p => relativePath.includes(p))) return;
+
+                console.log(`📝 File changed: ${relativePath}. Incrementally updating...`);
+                
+                indexingStatus.isIndexing = true;
+                indexingStatus.currentFile = relativePath;
+                indexingStatus.lastUpdate = new Date().toISOString();
 
                 try {
                     const content = fs.readFileSync(filePath, 'utf8');
-                    // We don't have a specific update method yet, so we'll just re-index the whole thing for now
-                    // In a production app, we'd only update the specific file's chunks
-                    // For the hackathon, a full index of small-med projects is fine
-                    await vectorStore.indexLocalDirectory();
-                    console.log(`✅ ${relativePath} re-indexed successfully`);
+                    await vectorStore.updateFile(relativePath, content);
+                    console.log(`✅ ${relativePath} updated successfully`);
                 } catch (e) {
                     logger.error('Failed to update file in vector store', { error: e.message });
+                } finally {
+                    indexingStatus.isIndexing = false;
+                    indexingStatus.currentFile = null;
                 }
             });
 

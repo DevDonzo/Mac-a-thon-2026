@@ -12,7 +12,7 @@ const config = {
     },
     models: {
         embedding: 'text-embedding-004',
-        generative: 'gemini-2.0-flash-exp',
+        generative: 'gemini-2.0-flash-001',
     },
     rag: {
         chunkSize: 1500,
@@ -23,7 +23,12 @@ const config = {
     project: {
         root: process.env.PROJECT_ROOT || '../', // Default to parent of backend
         autoIndex: true,
-        ignorePaths: ['node_modules', '.git', 'dist', 'build', '.next', 'package-lock.json']
+        ignorePaths: ['node_modules', '.git', 'dist', 'build', '.next', 'package-lock.json', 'vector_cache.json', '.DS_Store']
+    },
+    backboard: {
+        apiKey: process.env.BACKBOARD_API_KEY,
+        assistantId: process.env.BACKBOARD_ASSISTANT_ID,
+        enabled: !!process.env.BACKBOARD_API_KEY
     }
 };
 
