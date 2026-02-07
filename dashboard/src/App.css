@@ -1261,12 +1261,10 @@ input:checked+.toggle-slider:before {
 
 /* Markdown Styling in Chat Messages */
 .message-content code.inline-code {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
   font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
-  font-size: 0.9em;
-  color: var(--accent-primary);
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .message-content pre.code-block {
