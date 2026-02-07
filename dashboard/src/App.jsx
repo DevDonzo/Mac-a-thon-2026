@@ -173,7 +173,7 @@ function App() {
       <main className="main" ref={mainRef}>
         {/* Workspace Banner */}
         <div className={`workspace-banner ${status.indexing?.isIndexing ? 'indexing' :
-            (status.workspace || stats.filesIndexed > 0) ? '' : 'empty'
+          (status.workspace || stats.filesIndexed > 0) ? '' : 'empty'
           }`}>
           {status.indexing?.isIndexing ? (
             <div className="spinner-sm" />
@@ -296,10 +296,10 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           <button
             className="btn btn-primary"
             onClick={handleIndexProject}
-            disabled={indexing || !status.workspace}
-            title={!status.workspace ? 'Open a workspace in VS Code first' : 'Re-index current workspace'}
+            disabled={indexing || !status.ready}
+            title={!status.ready ? 'Backend is disconnected' : 'Refresh the project index'}
           >
-            {indexing ? 'Indexing...' : 'Re-Index Workspace'}
+            {indexing ? 'Indexing...' : 'Re-Index Project'}
           </button>
         </div>
         {indexResult === 'success' && (

@@ -1,63 +1,180 @@
-# CodeSensei: The AI Architect & Mentor
-### *Beyond Autocomplete. Deep Architectural Intelligence.*
+# CodeSensei
 
-[![Powered by Vertex AI](https://img.shields.io/badge/Powered%20by-Google%20Vertex%20AI-blue.svg)](https://cloud.google.com/vertex-ai)
-[![Memory by Backboard](https://img.shields.io/badge/Memory%20by-Backboard.io-lightgrey.svg)](https://backboard.io)
+### An Auditable Code Reasoning Engine for Whole-Repo Intelligence
+
+[![Powered by Vertex AI](https://img.shields.io/badge/Vertex%20AI-Embeddings%20%2B%20Gemini-4285F4)](https://cloud.google.com/vertex-ai)
+[![Memory by Backboard](https://img.shields.io/badge/Memory-Backboard.io-lightgrey)](https://backboard.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-CodeSensei is a Next-Gen Hybrid RAG code intelligence platform. While standard assistants like GitHub Copilot look at your code as a sequence of text tokens, CodeSensei treats your codebase as a living graph of logic, symbols, and dependencies.
+CodeSensei indexes your entire repository at the symbol level, retrieves structurally relevant context, and generates answers grounded in your actual code. Every claim links back to a file and line range. When the evidence is weak, it says so instead of guessing.
 
-It doesn't just suggest the next line; it understands the architectural DNA of your entire project.
-
----
-
-## Why CodeSensei?
-
-| Capability | GitHub Copilot | **CodeSensei** |
-|:---|:---:|:---:|
-| **Context Scope** | Limited to open files/tabs | **Full-Project Semantic Indexing** |
-| **Parsing Engine** | Token-based (NLP) | **Hybrid: AST + Semantic + Keyword** |
-| **Logic Awareness** | Predictive (Syntactic) | **Structural (Function/Class Boundaries)** |
-| **Transparency** | Black box | **Clickable Source Citations & RAG Viz** |
-| **Architectural Insight**| None | **Auto-Generated Mermaid Diagrams** |
-| **Relationship Mapping**| Flat file structure | **Interactive "Code DNA" Knowledge Graph** |
-| **Privacy Strategy** | Code sent to Microsoft/OpenAI | **Pinned to YOUR Private GCP Project** |
-| **Long-term Memory** | Per-session history | **Persistent cross-chat architectural memory** |
-| **Learning Engine** | Speed-oriented code generation | **Mentor Mode (Socratic Teaching & Best Practices)** |
+It is not autocomplete. It is a reasoning system you can audit.
 
 ---
 
-## Premium Intelligence Features
+## How CodeSensei Differs
 
-### Structural Intelligence (AST-Powered)
-Standard RAG breaks code at arbitrary character limits. CodeSensei uses Babel-based AST parsing to identify function boundaries, class definitions, and variable scopes. Your snippets are always logically complete.
+| Dimension | Copilot / ChatGPT | CodeSensei |
+|:---|:---|:---|
+| **Scope** | Open file or tab | Entire indexed repo |
+| **Chunking** | Character-based token windows | AST-aware symbol boundaries (functions, classes) |
+| **Transparency** | No source attribution | Clickable file + line citations for each claim |
+| **Structural awareness** | None | Import/export dependency graph, symbol extraction |
+| **Architecture tooling** | None | Mermaid diagram generation from real dependency data |
+| **Privacy model** | Code sent to third-party cloud | All inference in your own GCP project |
+| **Memory** | Resets per session | Persistent threads via Backboard.io |
 
-### Code DNA: The Knowledge Graph
-Explore your codebase through an interactive force-directed graph. Visualize how files import each other and how symbols (functions, classes) are interconnected.
-- **Red Nodes**: Critical Hubs (Heavily imported files)
-- **Blue Nodes**: Logic Providers
-- **Purple Nodes**: Classes & Data Structures
-
-### Auto-Architecture Generation
-Need to document a large project? One click generates a Mermaid.js System Diagram, grouping files into logical subgraphs (Backend, Frontend, API) based on real-world dependency analysis.
-
-### Mentor Mode: Level Up Your Team
-Toggle Mentor Mode to transform the AI from a code printer into a Senior Architect. It uses Socratic questioning and first-principles thinking to explain the reasoning behind design patterns, rather than just providing a fix.
-
-### Infinite Conversational Memory
-Powered by Backboard.io, CodeSensei remembers architectural decisions across different chat sessions. Your project constraints and global context persist, so you don't start from scratch every time you open the dashboard.
+This is not a feature comparison. It is a difference in approach: CodeSensei treats code as a graph of symbols and dependencies, not as a flat text buffer.
 
 ---
 
-## The Tech Stack
+## The Grounding Contract
 
-- **Large Language Model**: `gemini-2.0-flash-001` (Via Google Vertex AI)
-- **Vector Intelligence**: `text-embedding-004` (768-dimensional semantic vectors)
-- **Indexing Engine**: Hybrid AST + Keyword search with incremental file watching
-- **State Management**: Backboard.io persistent conversation threads
-- **Visuals**: React + Vite, Mermaid.js, Force-Graph-2D
-- **Host**: Your sovereign Google Cloud infrastructure
+CodeSensei enforces a contract between the engine and the developer:
 
+**1. Every claim cites its source.**
+Answers include file paths and line ranges for the code they reference. You can click through and verify.
+
+**2. Retrieved evidence is visible.**
+The retrieval pipeline logs which chunks were considered, their relevance scores, and why they were selected. This data is available in the response metadata for inspection.
+
+**3. Weak evidence triggers refusal.**
+If the indexed repo does not contain enough relevant context (relevance scores below threshold), CodeSensei states what it could not find and asks for a pointer rather than fabricating an answer. The system prompt explicitly instructs the model: "If the context doesn't contain enough information to fully answer, say so."
+
+**4. Direct mode skips retrieval entirely.**
+When you use Explain Code in VS Code, the highlighted code is sent directly to the model with no retrieval step. This eliminates the risk of injecting unrelated context and gives you a clean, scoped explanation of exactly what you selected.
+
+---
+
+## The Code Reasoning Pipeline
+
+Most retrieval systems treat source code like a document: split it at character boundaries, embed the fragments, and hope the right pieces surface. This fails for code because a function split at line 47 is not a meaningful unit.
+
+CodeSensei uses a structure-aware pipeline:
+
+```
+Query
+  |
+  v
+Intent Analysis
+  |
+  v
+Symbol Extraction (Babel AST)
+  Parse JS/TS/JSX/TSX into AST
+  Extract functions, classes, variables, imports/exports
+  Chunk at symbol boundaries, not character limits
+  |
+  v
+Dependency Context
+  Build import/export graph across files
+  Map symbol-to-file relationships
+  Score file importance (connections + exports + symbol count)
+  |
+  v
+Semantic Retrieval (Vertex AI text-embedding-004)
+  Embed query into 768-d vector
+  Cosine similarity against indexed chunks
+  Hybrid fallback: if <3 results or top score <0.6, add keyword matches
+  Prioritize current-file chunks when code is highlighted (70/30 split)
+  |
+  v
+Context Assembly + Generation (Gemini 2.0 Flash)
+  Top 5 chunks with scores + dependency context + user code
+  System prompt calibrated to context quality (high/medium/low)
+  Structured answer with file:line citations
+```
+
+**Why AST boundaries matter.** Babel parses each file and identifies function declarations, class bodies, and variable assignments as discrete units. Each chunk is a complete logical block with metadata (symbol name, type, parameters, line range). When the model receives these chunks, it is working with whole symbols, not fragments. The fallback to character-based chunking (1500 chars, 200 overlap) only activates for files that fail to parse.
+
+---
+
+## Three Core Workflows
+
+### 1. Explain Code (Direct Analysis)
+
+Select code in VS Code, press `Cmd+Shift+E`. The highlighted code goes straight to Gemini with no retrieval layer. You get a scoped explanation of exactly that code: what it does, how it works, and where it could break.
+
+**Why this matters:** No RAG noise. No risk of the model weaving in unrelated files. The answer is about the code in front of you, and only that code.
+
+### 2. Ask with Citations (Grounded Q&A)
+
+Ask a question about your project through the dashboard or VS Code (`Cmd+Shift+A`). The pipeline indexes the repo, retrieves the most relevant chunks, and generates an answer with file and line references.
+
+**What makes it different:**
+- Chunks are AST-aligned, so the model sees complete functions, not fragments.
+- Relevance scores are tracked per chunk. Low-confidence retrievals trigger a warning in the system prompt, telling the model to hedge rather than hallucinate.
+- If you ask from VS Code with a file open, chunks from that file are weighted higher (7 current-file chunks vs 3 from the rest of the repo).
+
+### 3. Architecture View and Code DNA
+
+The dashboard provides two structural tools built from the actual dependency graph, not from LLM speculation:
+
+**Code DNA** is an interactive force-directed graph of your repo's import/export relationships. Nodes represent files or symbols (toggle between levels). Node color and size reflect structural role: heavily imported files appear as larger hubs. You can zoom, pan, and click any node to inspect it.
+
+**Architecture Diagram** generates a Mermaid diagram grouping files into logical subgraphs (Backend, Frontend, API) based on real dependency edges. This is useful for onboarding, documentation, or spotting structural problems.
+
+Both tools are generated from parsed import/export statements, not from the LLM's general knowledge. The graph is your code's actual structure.
+
+---
+
+## Trust and Evaluation
+
+### How We Measure Reliability
+
+CodeSensei tracks retrieval quality at each step of the pipeline. Every response includes metadata: which chunks were considered, their cosine similarity scores, and whether keyword fallback was triggered.
+
+The following metrics define our reliability targets:
+
+| Metric | Definition | Example Target |
+|:---|:---|:---|
+| Citation coverage | % of factual claims with a file:line reference | > 90% |
+| Unsupported-claim rate | % of claims that reference code not in the repo | < 5% |
+| Correct file hit rate | % of retrieved chunks from the actually relevant file | > 75% |
+| Retrieval confidence | Average cosine similarity of top-5 chunks | > 0.65 |
+| Refusal rate on out-of-scope | % of unanswerable queries that trigger a refusal | > 80% |
+
+These are example targets, not measured results. We have not yet run a formal eval suite.
+
+### Eval Plan
+
+We plan to build a lightweight evaluation harness:
+- A set of 20-30 ground-truth questions per test repo, each with expected file references.
+- Automated comparison of cited files/lines against ground truth.
+- A "hallucination probe" set: questions about code that does not exist in the repo, measuring refusal rate.
+- Tracked over time as the pipeline changes.
+
+This does not exist today. It is the next investment after core stability.
+
+---
+
+## Security and Privacy
+
+### What stays where
+
+**Your GCP project, your data.** All Vertex AI calls (embeddings and generation) route to the GCP project you configure. Code is sent to Google's Vertex AI API within your project boundary. It is not sent to OpenAI, Anthropic, or any third-party model provider.
+
+**Local embedding cache.** Computed embeddings are cached in `backend/vector_cache.json` on the machine running the backend. This file is gitignored by default. It contains vector representations of your code chunks, not raw source code, though chunk text is stored alongside vectors for retrieval.
+
+**Chat memory.** Persistent conversation threads are stored in Backboard.io. This means conversation content (your questions and the model's answers) is sent to Backboard's API. If this is a concern, Backboard can be disabled by omitting the API key; chat will still work but will not persist across sessions.
+
+### Recommended configuration
+
+- Restrict the GCP project to your organization's VPC if you need network-level isolation.
+- Review `backend/.env` to ensure no secrets are committed. The `.env.example` template contains only placeholder values.
+- For repos with sensitive content, consider adding file-level exclusion patterns in the extension config (`EXCLUDE_PATTERNS`) to prevent indexing of secrets, credentials, or PII.
+
+We do not currently implement automatic secret detection or PII scrubbing. These are recommended as manual configuration steps.
+
+---
+
+## What We Do Not Do
+
+- **We do not claim certainty without evidence.** If the retrieval pipeline cannot find relevant code, the system prompt instructs the model to say so. This is a prompt-level guardrail, not a hard technical guarantee.
+- **We do not train on your repo.** Vertex AI models are Google's pretrained models. Your code is used for inference only. Embeddings are cached locally and not sent anywhere beyond the Vertex AI API.
+- **We do not silently invent architecture facts.** The dependency graph and architecture diagrams are built from parsed import/export statements. If a relationship is not in your code, it does not appear in the graph.
+- **We do not run in CI, comment on PRs, or integrate with git history.** CodeSensei is an interactive analysis tool, not a CI pipeline component.
+
+---
 
 ## Quick Start
 
@@ -66,22 +183,20 @@ Powered by Backboard.io, CodeSensei remembers architectural decisions across dif
 - Node.js 18+
 - Google Cloud account with Vertex AI API enabled
 - VS Code 1.85+
-- Backboard.io account (for chat memory)
+- Backboard.io account (optional, for persistent chat memory)
 
-### 1. Set Up Google Cloud (One-Time)
+### 1. Configure Google Cloud
 
 ```bash
 # Install gcloud CLI: https://cloud.google.com/sdk/docs/install
-
-# Initialize and login
-gcloud init       # Follow prompts to login and select project
-gcloud auth application-default login  # For API access
-gcloud services enable aiplatform.googleapis.com  # Enable Vertex AI
+gcloud init
+gcloud auth application-default login
+gcloud services enable aiplatform.googleapis.com
 ```
 
-### 2. Set Up Backboard.io (One-Time)
+### 2. Configure Backboard.io (Optional)
 
-1. Create account at https://app.backboard.io
+1. Create an account at https://app.backboard.io
 2. Create an assistant
 3. Copy your API key and Assistant ID
 
@@ -89,34 +204,26 @@ gcloud services enable aiplatform.googleapis.com  # Enable Vertex AI
 
 ```bash
 cd backend
-
-# First time setup
 cp .env.example .env
-# Edit .env and set:
+# Edit .env:
 #   GCP_PROJECT_ID=your-project-id
-#   BACKBOARD_API_KEY=your-backboard-key
-#   BACKBOARD_ASSISTANT_ID=your-assistant-id
+#   BACKBOARD_API_KEY=your-backboard-key       (optional)
+#   BACKBOARD_ASSISTANT_ID=your-assistant-id   (optional)
 
 npm install
 npm start
-# Server runs at http://localhost:3000
+# Runs at http://localhost:3000
 ```
 
 ### 4. Install the VS Code Extension
 
-**Option A: Install from .vsix file (Recommended)**
 ```bash
 cd vscode-extension
-npx vsce package                               # Creates codesensei-1.0.0.vsix
-code --install-extension codesensei-1.0.0.vsix # Install it
+npx vsce package
+code --install-extension codesensei-1.0.0.vsix
 ```
 
-**Option B: Development Mode**
-```bash
-cd vscode-extension
-npm install
-# Open folder in VS Code, press F5 to launch
-```
+Or for development: open the `vscode-extension` folder in VS Code and press F5.
 
 ### 5. Launch the Dashboard
 
@@ -124,160 +231,92 @@ npm install
 cd dashboard
 npm install
 npm run dev
-# Dashboard at http://localhost:5173
+# Opens at http://localhost:5173
 ```
 
-### 6. Use CodeSensei!
+### 6. Verify It Works
 
-**In VS Code:**
-1. Open any project in VS Code
-2. Wait for **"CodeSensei (X files)"** in the status bar (auto-indexes on startup)
-3. Select code and press `Cmd+Shift+A` (Mac) or `Ctrl+Shift+A` (Windows)
-4. Or right-click → **CodeSensei** submenu
+1. Open a project in VS Code. Wait for "CodeSensei (X files)" in the status bar.
+2. Select a function, press `Cmd+Shift+E` (Mac) or `Ctrl+Shift+E` (Windows). You should get an explanation of that code with no retrieval step.
+3. Press `Cmd+Shift+A` / `Ctrl+Shift+A` and ask a question about the project. The answer should include file references.
+4. Open the dashboard at `http://localhost:5173` and check the Code DNA and Architecture tabs.
 
-**In Dashboard:**
-1. Open http://localhost:5173
-2. Click "Re-Index Project" if needed
-3. Use RAG Chat for conversational code queries
-4. Explore Code DNA and Architecture tabs
+---
 
-**Keyboard Shortcuts:**
+## 60-Second Demo Script
+
+For judges or anyone evaluating CodeSensei quickly:
+
+1. **Start the backend:** `cd backend && npm start`
+2. **Open VS Code** with the extension installed. Open a project with 10+ files.
+3. **Wait for indexing** (status bar shows file count).
+4. **Explain Code:** Select a function body, press `Cmd+Shift+E`. Note: no retrieval, just a clean scoped explanation.
+5. **Ask a grounded question:** Press `Cmd+Shift+A`, ask "What does the authentication flow look like?" (or any architectural question relevant to the repo). Check that the response cites specific files and lines.
+6. **Open the dashboard** at `localhost:5173`. Click "Code DNA" to see the dependency graph. Click "Architecture" to see the generated Mermaid diagram.
+7. **Verify the graph is real:** Click a node in Code DNA. Confirm the file and its imports match your actual code.
+
+---
+
+## Keyboard Shortcuts
+
 | Command | Mac | Windows/Linux |
-|---------|-----|---------------|
-| Ask Question | `Cmd+Shift+A` | `Ctrl+Shift+A` |
-| Explain Code | `Cmd+Shift+E` | `Ctrl+Shift+E` |
+|:---|:---|:---|
+| Ask (RAG Q&A) | `Cmd+Shift+A` | `Ctrl+Shift+A` |
+| Explain Code (direct) | `Cmd+Shift+E` | `Ctrl+Shift+E` |
 | Find Bugs | `Cmd+Shift+B` | `Ctrl+Shift+B` |
 | Quick Menu | `Cmd+Shift+C` | `Ctrl+Shift+C` |
 
+Additional commands available via the command palette: Suggest Refactor, Generate Tests, Re-index Workspace, Toggle Mentor Mode.
 
-## Commands
-
-| Command | Shortcut | Description |
-|---------|----------|-------------|
-| Ask CodeSensei | `Cmd+Shift+A` | Ask any question about your code (uses RAG) |
-| Explain This Code | `Cmd+Shift+E` | Get a detailed explanation of selected code (direct, no RAG) |
-| Find Bugs | `Cmd+Shift+B` | Analyze code for bugs and issues |
-| Suggest Refactor | - | Get refactoring suggestions |
-| Generate Tests | - | Generate unit tests for code |
-| Re-index Workspace | - | Refresh the project index |
-| Toggle Mentor Mode | - | Enable/disable educational responses |
-
-## How RAG Works
-
-CodeSensei uses a **hybrid multi-modal architecture** that goes beyond traditional RAG:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     VS Code Extension                           │
-│  1. Scans workspace on startup                                  │
-│  2. Sends files to backend for indexing                        │
-│  3. User asks a question or highlights code                    │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                 CodeSensei Backend (Hybrid)                     │
-│  ╔══════════════════════════════════════════════════════════╗  │
-│  ║  1. AST PARSING (Babel)                                  ║  │
-│  ║     • Parse JS/TS/JSX/TSX with Babel                     ║  │
-│  ║     • Extract functions, classes, variables, imports     ║  │
-│  ║     • Chunk by symbol boundaries (not characters!)       ║  │
-│  ║     • Store symbol metadata with chunks                  ║  │
-│  ╚══════════════════════════════════════════════════════════╝  │
-│                                                                 │
-│  ╔══════════════════════════════════════════════════════════╗  │
-│  ║  2. SEMANTIC EMBEDDINGS (Vertex AI)                      ║  │
-│  ║     • text-embedding-004 for 768-d vectors               ║  │
-│  ║     • Batch processing (20 chunks/batch, 4x faster)      ║  │
-│  ║     • Cosine similarity search for relevance             ║  │
-│  ║     • File prioritization when code is highlighted       ║  │
-│  ╚══════════════════════════════════════════════════════════╝  │
-│                                                                 │
-│  ╔══════════════════════════════════════════════════════════╗  │
-│  ║  3. DEPENDENCY GRAPH                                     ║  │
-│  ║     • Parse import/export statements                     ║  │
-│  ║     • Build file-level dependency edges                  ║  │
-│  ║     • Symbol-to-file mappings                            ║  │
-│  ║     • Traverse related code context                      ║  │
-│  ╚══════════════════════════════════════════════════════════╝  │
-│                                                                 │
-│  4. Context + user code → Gemini → Backboard.io persistence   │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Google Vertex AI                            │
-│  - text-embedding-004 for semantic embeddings (768-d vectors)  │
-│  - gemini-2.0-flash-001 for intelligent responses              │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Why Hybrid is Better Than Traditional RAG
-
-Traditional RAG treats code like documents (character-based chunks). But code is a **graph**, not text:
-- Functions call other functions across files
-- Imports create dependency chains  
-- Context depends on symbol definitions, not proximity
-
-**Our Approach:**
-1. **AST Parsing** → Understand code structure (what is a function? where does it end?)
-2. **Symbol Extraction** → Track functions, classes, variables individually
-3. **Dependency Graph** → Map relationships (X imports Y, calls function Z)
-4. **Semantic Search** → Find relevant patterns and concepts
-5. **Hybrid Retrieval** → Combine all three for context-aware results
-
-### RAG Modes
-
-1. **Explain Code (VS Code)**: Skips RAG, directly analyzes highlighted code for accuracy
-2. **RAG Chat (Dashboard/General)**: Uses full hybrid search with file prioritization
-3. **Hybrid**: When code is highlighted + RAG enabled, prioritizes current file chunks (7:3 ratio)
+---
 
 ## Project Structure
 
 ```
 Mac-a-thon-2026/
-├── backend/               # Node.js backend server
+├── backend/
 │   ├── src/
-│   │   ├── server.js      # Express API with file watcher
-│   │   ├── ai.js          # AI query logic with RAG
-│   │   ├── vertexai.js    # Vertex AI client (embeddings + LLM)
-│   │   ├── vectorStore.js # RAG vector store with AST-based chunking
-│   │   ├── astParser.js   # Babel-based AST parser for symbol extraction
-│   │   ├── backboard.js   # Backboard.io integration
-│   │   ├── prompts.js     # System prompts
-│   │   ├── config.js      # Configuration
-│   │   └── logger.js      # Winston logger
-│   ├── .env.example       # Environment template
+│   │   ├── server.js        # Express API, file watcher, auto-indexing
+│   │   ├── ai.js            # RAG query logic, retrieval step tracking
+│   │   ├── vertexai.js      # Vertex AI client (embeddings + Gemini)
+│   │   ├── vectorStore.js   # Vector store, AST-based chunking, hybrid search
+│   │   ├── astParser.js     # Babel AST parser, symbol extraction
+│   │   ├── backboard.js     # Backboard.io thread management
+│   │   ├── prompts.js       # System prompts (analysis, refactor, architecture)
+│   │   ├── config.js        # Configuration and defaults
+│   │   └── logger.js        # Winston logger
+│   ├── .env.example
 │   ├── package.json
-│   └── vector_cache.json  # Cached embeddings (gitignored)
+│   └── vector_cache.json    # Local embedding cache (gitignored)
 │
-├── vscode-extension/      # VS Code extension
-│   ├── extension.js       # Extension logic with skipRAG flag
-│   └── package.json       # Extension manifest
+├── vscode-extension/
+│   ├── extension.js         # Commands, indexing, skipRAG routing
+│   └── package.json
 │
-├── dashboard/             # React visualization dashboard
+├── dashboard/
 │   └── src/
-│       ├── App.jsx        # Main component (all-in-one)
-│       └── App.css        # Dark theme styles
+│       ├── App.jsx          # React app (chat, Code DNA, architecture)
+│       └── App.css
 │
+├── setup.sh
 ├── .gitignore
 └── README.md
 ```
 
-## API Endpoints
+## API Reference
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check with indexing status |
-| `/api/status` | GET | Detailed index status |
-| `/api/index` | POST | Index project files (auto-detects changes) |
-| `/api/ask` | POST | RAG-powered query (supports skipRAG flag) |
-| `/api/analyze` | POST | Code analysis |
+| Endpoint | Method | Purpose |
+|:---|:---|:---|
+| `/health` | GET | Health check, Vertex AI connection status, index stats |
+| `/api/status` | GET | Index readiness, workspace path |
+| `/api/index` | POST | Index files (auto-detects changes, incremental) |
+| `/api/ask` | POST | Query with RAG or direct mode (`skipRAG` flag) |
+| `/api/analyze` | POST | Bug and security analysis with line references |
 | `/api/refactor` | POST | Refactoring suggestions |
-| `/api/tests` | POST | Test generation |
-| `/api/architecture` | POST | Generate architecture diagram |
-| `/api/knowledge-graph` | GET | Get file dependency graph for Code DNA |
-| `/api/chat/thread` | POST | Create new Backboard.io conversation thread |
+| `/api/tests` | POST | Unit test generation |
+| `/api/architecture` | POST | Generate Mermaid architecture diagram |
+| `/api/knowledge-graph` | GET | Dependency graph data for Code DNA |
+| `/api/chat/thread` | POST | Create Backboard.io conversation thread |
 
 ## Configuration
 
@@ -286,16 +325,18 @@ Mac-a-thon-2026/
 ```env
 # Required
 GCP_PROJECT_ID=your-project-id
+
+# Optional (enables persistent chat)
 BACKBOARD_API_KEY=your-backboard-api-key
 BACKBOARD_ASSISTANT_ID=your-assistant-id
 
 # Optional
-GCP_LOCATION=us-central1          # Default: us-central1
-PORT=3000                         # Default: 3000
-LOG_LEVEL=info                    # Default: info
+GCP_LOCATION=us-central1
+PORT=3000
+LOG_LEVEL=info
 ```
 
-### Extension (VS Code Settings)
+### VS Code Extension Settings
 
 ```json
 {
@@ -305,79 +346,48 @@ LOG_LEVEL=info                    # Default: info
 }
 ```
 
-## Features in Detail
+---
 
-### 1. Code DNA Visualization
-- Interactive force-directed graph using react-force-graph-2d
-- **Symbol-level nodes**: Toggle to show individual functions, classes, variables (212+ symbols)
-- **File-level nodes**: Shows dependencies based on import statements
-- Node colors indicate type (JS files: blue, Functions: blue, Classes: purple, Variables: green)
-- Interactive legend explaining node types
-- Zoom, pan, and click nodes to see details
-- Auto-generates on page load
-- Real-time stats: "X nodes • Y edges"
+## Stack
 
-### 2. Architecture Diagrams
-- AI-generated Mermaid diagrams
-- Groups files into logical subgraphs (Backend, Frontend, etc.)
-- Shows dependencies with arrows
-- Auto-generates on page load
-- Refresh button for regeneration
-- Pure black background with blue accents
+| Layer | Technology | Role |
+|:---|:---|:---|
+| LLM | Gemini 2.0 Flash (via Vertex AI) | Generation, analysis, architecture prompts |
+| Embeddings | text-embedding-004 (768-d vectors) | Semantic search over code chunks |
+| AST parsing | Babel (JSX, TypeScript, decorators) | Symbol extraction, structure-aware chunking |
+| Memory | Backboard.io | Persistent conversation threads |
+| Backend | Node.js, Express, chokidar | API server, real-time file watching |
+| Extension | VS Code Extension API | Editor integration, auto-indexing |
+| Dashboard | React + Vite | Chat UI, Code DNA graph, architecture viewer |
+| Visualization | react-force-graph-2d, Mermaid.js | Dependency graph, architecture diagrams |
 
-### 3. RAG Chat
-- Markdown rendering with code syntax highlighting
-- Per-message delete (shows on hover)
-- Persistent conversation history with Backboard.io
-- Active tab highlighting
-- No scroll jump on tab changes
-- Live indexing indicator
-
-### 4. Live Indexing
-- Real-time file watching with chokidar
-- Incremental updates (no stats reset to 0)
-- Shows "Code change detected, updating index: filename"
-- Stats remain visible during reindexing
+---
 
 ## Troubleshooting
 
-### "Backend not running"
-Start the backend server: `cd backend && npm start`
+**"Backend not running"**: Run `cd backend && npm start`.
 
-### "Vertex AI not configured" or "Model Not Found"
-1. Ensure `GCP_PROJECT_ID` is set in `backend/.env`
-2. Run `gcloud auth application-default login`
-3. Ensure Vertex AI API is enabled in your project
-4. If you see `Model ... not found`, try changing `GCP_LOCATION` to `us-central1` or `us-west1` in `.env`
+**"Vertex AI not configured" or "Model Not Found"**: Verify `GCP_PROJECT_ID` in `.env`, run `gcloud auth application-default login`, and ensure the Vertex AI API is enabled. Try `GCP_LOCATION=us-central1` if the model is not found in your default region.
 
-### "No files indexed"
-1. Open a workspace folder (not just a file)
-2. Wait for indexing to complete (check status bar or dashboard)
-3. Try "Re-Index Project" button on dashboard
-4. Try `CodeSensei: Re-index Workspace` from command palette in VS Code
+**"No files indexed"**: Open a workspace folder (not a single file). Check the status bar or dashboard for indexing progress. Use "Re-Index Project" in the dashboard or `CodeSensei: Re-index Workspace` from the command palette.
 
-### "Error: Request failed with status code 422" (Backboard)
-1. Check that `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` are set correctly
-2. Verify credentials at https://app.backboard.io/docs
-3. Restart the backend after updating .env
+**Backboard 422 errors**: Verify `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` in `.env`. Restart the backend after changes.
 
-### "RAG explaining random code"
-- For "Explain Code" in VS Code: This now skips RAG and directly analyzes highlighted code
-- For dashboard chat: Ensure project is indexed, uses full RAG with semantic search
+**Explain Code returning unrelated context**: Explain Code uses `skipRAG` and should not retrieve external chunks. If this happens, confirm you are using `Cmd+Shift+E`, not `Cmd+Shift+A`.
 
-### Mermaid syntax errors in architecture
-- Backend now sanitizes node labels to remove special characters
-- If issues persist, click "Refresh Diagram" to regenerate
+---
 
-## Technology Stack
+## Roadmap
 
-- **AI**: Google Vertex AI, Gemini 2.0 Flash, text-embedding-004
-- **Code Intelligence**: Babel parser for AST, symbol extraction, dependency graphs
-- **Memory**: Backboard.io for conversation persistence
-- **Backend**: Node.js, Express, chokidar (file watching)
-- **Frontend**: VS Code Extension API, React + Vite
-- **Visualization**: react-force-graph-2d (with symbol nodes), Mermaid.js, react-zoom-pan-pinch
-- **UI**: Geist font, Lucide icons, dark theme
+These are the areas we plan to invest in next, all aligned with deepening the grounding and structural reasoning capabilities:
+
+1. **Evaluation harness.** A repeatable test suite with ground-truth questions, expected file citations, and hallucination probes. This is the highest-priority next step.
+2. **Evidence panel in the dashboard.** Surface retrieved chunks, their relevance scores, and the reasoning trace directly in the chat UI so users can inspect why an answer was given.
+3. **Cross-language AST support.** Extend Babel-based parsing to Python, Go, and Rust via language-specific parsers, enabling structure-aware chunking for polyglot repos.
+4. **Strict grounding mode.** A toggle that rejects any answer where the top retrieval score falls below a configurable threshold, forcing refusal over speculation.
+5. **Vector database option.** Replace the local JSON cache with an optional vector database (Pinecone, Weaviate, or pgvector) for repos that exceed in-memory scale.
+
+---
 
 ## License
 
@@ -385,4 +395,4 @@ MIT
 
 ---
 
-Built for Mac-a-thon 2026 | Powered by Google Cloud AI + Backboard.io
+Built for Mac-a-thon 2026
