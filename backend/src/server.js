@@ -132,8 +132,6 @@ app.post('/api/index', async (req, res) => {
             });
         }
     } catch (error) {
-        });
-    } catch (error) {
         indexingStatus.isIndexing = false;
         indexingStatus.currentFile = null;
         logger.error('Indexing failed', { error: error.message, stack: error.stack });
