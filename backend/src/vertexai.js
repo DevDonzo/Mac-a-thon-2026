@@ -67,7 +67,7 @@ async function generateEmbeddings(texts) {
         const url = `https://${config.gcp.location}-aiplatform.googleapis.com/v1/projects/${config.gcp.projectId}/locations/${config.gcp.location}/publishers/google/models/${config.models.embedding}:predict`;
 
         const embeddings = [];
-        const batchSize = 5;
+        const batchSize = 20; // Increased from 5 to 20 for faster indexing
 
         for (let i = 0; i < texts.length; i += batchSize) {
             const batch = texts.slice(i, i + batchSize);
@@ -81,7 +81,8 @@ async function generateEmbeddings(texts) {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    timeout: 30000 // 30 second timeout
                 });
 
                 if (response.data && response.data.predictions) {
@@ -97,9 +98,9 @@ async function generateEmbeddings(texts) {
                 batch.forEach(text => embeddings.push(createSimpleEmbedding(text)));
             }
 
-            // Small delay between batches to avoid hits on quota
+            // Reduced delay from 200ms to 50ms
             if (i + batchSize < texts.length) {
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 50));
             }
         }
 

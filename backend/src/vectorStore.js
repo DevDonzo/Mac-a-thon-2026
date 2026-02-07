@@ -231,10 +231,11 @@ class VectorStore {
                 chunks: this.chunks,
                 projectId: this.projectId,
                 indexedAt: this.indexedAt,
-                hasEmbeddings: this.hasEmbeddings
+                hasEmbeddings: this.hasEmbeddings,
+                workspacePath: this.workspacePath // Save workspace path!
             };
             fs.writeFileSync(CACHE_FILE, JSON.stringify(data));
-            logger.info('Vector store saved to cache');
+            logger.info('Vector store saved to cache', { workspacePath: this.workspacePath });
         } catch (e) {
             logger.error('Failed to save vector store', { error: e.message });
         }
@@ -248,7 +249,11 @@ class VectorStore {
                 this.projectId = data.projectId;
                 this.indexedAt = data.indexedAt;
                 this.hasEmbeddings = data.hasEmbeddings;
-                logger.info('Vector store loaded from cache', { chunks: this.chunks.length });
+                this.workspacePath = data.workspacePath || null; // Load workspace path
+                logger.info('Vector store loaded from cache', { 
+                    chunks: this.chunks.length,
+                    workspace: this.workspacePath
+                });
             }
         } catch (e) {
             logger.error('Failed to load vector store', { error: e.message });
