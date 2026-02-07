@@ -259,7 +259,7 @@ function App() {
           <OverviewPage stats={stats} status={status} loading={loading} mentorMode={mentorMode} />
         )}
         {activeTab === 'rag' && (
-          <RAGPlaygroundPage mentorMode={mentorMode} />
+          <RAGPlaygroundPage mentorMode={mentorMode} status={status} />
         )}
         {activeTab === 'codedna' && (
           <CodeDNAPage />
@@ -440,7 +440,7 @@ function StatCard({ value, label }) {
   );
 }
 
-function RAGPlaygroundPage({ mentorMode }) {
+function RAGPlaygroundPage({ mentorMode, status }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -685,12 +685,22 @@ function RAGPlaygroundPage({ mentorMode }) {
 
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="sources-grid">
-                      {msg.sources.map((src, idx) => (
-                        <div key={idx} className="mini-source-card" onClick={() => window.open(`vscode://file/${src.path}:${src.startLine}`)}>
-                          <div className="mini-source-path">{src.path}</div>
-                          <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Lines {src.lines}</div>
-                        </div>
-                      ))}
+                      {msg.sources.map((src, idx) => {
+                        // Build full absolute path for VS Code
+                        const workspacePath = status?.workspace || '';
+                        const fullPath = workspacePath ? `${workspacePath}/${src.path}` : src.path;
+                        
+                        return (
+                          <div 
+                            key={idx} 
+                            className="mini-source-card" 
+                            onClick={() => window.open(`vscode://file/${fullPath}:${src.startLine}`)}
+                          >
+                            <div className="mini-source-path">{src.path}</div>
+                            <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Lines {src.lines}</div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
