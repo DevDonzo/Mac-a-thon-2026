@@ -10,6 +10,7 @@ import {
   Layers,
   CheckCircle,
   XCircle,
+  AlertCircle,
   Trash2,
   Search,
   Send,
@@ -162,69 +163,77 @@ function App() {
       {/* Main Content */}
       <main className="main" ref={mainRef}>
         {/* Current Workspace Banner - Always Visible */}
-        {status.workspace && (
-          <div style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-            padding: '12px 24px',
-            background: status.indexing?.isIndexing 
-              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
-              : 'rgba(255, 255, 255, 0.03)',
-            border: `1px solid ${status.indexing?.isIndexing ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.1)'}`,
-            borderRadius: '8px',
-            marginBottom: '24px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              {status.indexing?.isIndexing ? (
-                <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
-              ) : (
-                <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ 
-                  fontSize: '0.75rem', 
-                  color: 'var(--text-secondary)', 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '0.05em',
-                  marginBottom: '4px',
-                  fontWeight: 600
-                }}>
-                  {status.indexing?.isIndexing ? 'Indexing' : 'Indexed Workspace'}
-                </div>
-                <div style={{ 
-                  fontSize: '0.9rem', 
-                  color: 'var(--text-primary)', 
-                  fontFamily: 'monospace',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {status.workspace}
-                  {status.indexing?.isIndexing && status.indexing.currentFile && (
-                    <>
-                      <span style={{ color: 'var(--text-secondary)', margin: '0 8px' }}>/</span>
-                      <span style={{ color: '#3b82f6' }}>
-                        {status.indexing.currentFile}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
+        <div style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          padding: '12px 24px',
+          background: status.indexing?.isIndexing 
+            ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
+            : 'rgba(255, 255, 255, 0.03)',
+          border: `1px solid ${status.indexing?.isIndexing ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.1)'}`,
+          borderRadius: '8px',
+          marginBottom: '24px',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {status.indexing?.isIndexing ? (
+              <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
+            ) : status.workspace ? (
+              <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
+            ) : (
+              <AlertCircle size={18} style={{ color: '#f59e0b', flexShrink: 0 }} />
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ 
                 fontSize: '0.75rem', 
-                color: 'var(--text-secondary)',
-                padding: '4px 12px',
-                background: 'rgba(255, 255, 255, 0.05)',
-                borderRadius: '4px',
-                flexShrink: 0
+                color: 'var(--text-secondary)', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.05em',
+                marginBottom: '4px',
+                fontWeight: 600
               }}>
-                {stats.filesIndexed || 0} files
+                {status.indexing?.isIndexing ? 'Indexing' : status.workspace ? 'Indexed Workspace' : 'No Workspace'}
+              </div>
+              <div style={{ 
+                fontSize: '0.9rem', 
+                color: 'var(--text-primary)', 
+                fontFamily: 'monospace',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {status.workspace ? (
+                  <>
+                    {status.workspace}
+                    {status.indexing?.isIndexing && status.indexing.currentFile && (
+                      <>
+                        <span style={{ color: 'var(--text-secondary)', margin: '0 8px' }}>/</span>
+                        <span style={{ color: '#3b82f6' }}>
+                          {status.indexing.currentFile}
+                        </span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Open a workspace in VS Code and wait for auto-indexing
+                  </span>
+                )}
               </div>
             </div>
+            <div style={{ 
+              fontSize: '0.75rem', 
+              color: 'var(--text-secondary)',
+              padding: '4px 12px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '4px',
+              flexShrink: 0
+            }}>
+              {stats.filesIndexed || 0} files
+            </div>
           </div>
-        )}
+        </div>
 
         {!status.ready && !loading && (
           <div className="card" style={{ borderLeft: '4px solid var(--text-primary)', background: 'var(--bg-secondary)' }}>
@@ -359,7 +368,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           label="Languages"
         />
         <StatCard
-          value={mentorMode ? 'Active' : 'Diff'}
+          value={mentorMode ? 'On' : 'Off'}
           label="Mentor Mode"
         />
       </div>
