@@ -258,13 +258,28 @@ async function generateArchitecture() {
     // Get dependency graph from vector store
     const { nodes, edges } = vectorStore.getDependencyGraph();
 
-    // Format nodes for prompt
-    const nodeList = nodes.map(n => `- ${n.label} (${n.fullPath})`).join('\n');
+    // Sanitize node labels for mermaid syntax
+    const sanitizeLabel = (label) => {
+        // Remove or replace special characters that break mermaid
+        return label
+            .replace(/[[\]{}()]/g, '') // Remove brackets and parentheses
+            .replace(/[<>]/g, '') // Remove angle brackets
+            .replace(/"/g, "'") // Replace double quotes with single
+            .replace(/\|/g, '-') // Replace pipes
+            .replace(/\n/g, ' ') // Remove newlines
+            .trim();
+    };
 
-    // Format edges for prompt
+    // Format nodes for prompt with sanitized labels
+    const nodeList = nodes.map(n => {
+        const sanitized = sanitizeLabel(n.label);
+        return `- ${sanitized} (${n.fullPath})`;
+    }).join('\n');
+
+    // Format edges for prompt with sanitized labels
     const edgeList = edges.map(e => {
-        const source = e.source.split('/').pop();
-        const target = e.target.split('/').pop();
+        const source = sanitizeLabel(e.source.split('/').pop());
+        const target = sanitizeLabel(e.target.split('/').pop());
         return `${source} relies on ${target}`;
     }).join('\n');
 
@@ -280,7 +295,9 @@ INSTRUCTIONS:
 1. Use the observed dependencies to draw arrows between components.
 2. Group files logically into subgraphs (e.g. Backend, Frontend, Utilities) based on their paths/names.
 3. If a file is not in the dependency list but is in the project files, show it as a standalone node or connect it based on potential inferred relationships (but use dotted lines for inferred).
-4. Do NOT hallucinate dependencies that contradict the observed list.`;
+4. Do NOT hallucinate dependencies that contradict the observed list.
+5. IMPORTANT: Use simple node labels without special characters. Wrap labels in quotes if they contain spaces.
+6. IMPORTANT: Follow mermaid v11 syntax strictly. Use proper node definitions.`;
 
     const answer = await generateContent(fullPrompt);
 

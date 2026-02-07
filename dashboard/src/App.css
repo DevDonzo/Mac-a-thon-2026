@@ -892,15 +892,15 @@ input:checked+.toggle-slider:before {
 
 .architecture-viewport {
   flex: 1;
-  background: var(--bg-primary);
+  background: #000000;
   border-radius: var(--radius-md);
   padding: 3rem;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
   min-height: 500px;
-  border: 1px solid var(--border);
+  border: 1px solid #1e293b;
   position: relative;
 }
 
@@ -935,12 +935,16 @@ input:checked+.toggle-slider:before {
   height: 100%;
   display: flex;
   justify-content: center;
-  padding: 20px;
+  align-items: center;
+  padding: 40px;
+  background: #000000;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .mermaid {
   background: transparent !important;
-  font-family: 'Inter', sans-serif !important;
+  font-family: 'Geist', system-ui, -apple-system, sans-serif !important;
 }
 
 .mermaid .node rect,
@@ -948,30 +952,58 @@ input:checked+.toggle-slider:before {
 .mermaid .node ellipse,
 .mermaid .node polygon,
 .mermaid .node path {
-  fill: var(--bg-tertiary) !important;
-  stroke: var(--text-primary) !important;
-  stroke-width: 1.5px !important;
+  fill: #1e293b !important;
+  stroke: #3b82f6 !important;
+  stroke-width: 2px !important;
 }
 
 .mermaid .edgePath path {
-  stroke: var(--text-secondary) !important;
-  stroke-width: 1.5px !important;
+  stroke: #64748b !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid .edgeLabel {
+  background-color: #0f1419 !important;
+  color: var(--text-secondary) !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
 }
 
 .mermaid .label {
   color: var(--text-primary) !important;
-  font-family: 'Inter', sans-serif !important;
+  font-family: 'Geist', system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.mermaid .nodeLabel {
+  color: var(--text-primary) !important;
 }
 
 .mermaid .cluster rect {
-  fill: #0d0d0d !important;
-  stroke: var(--border) !important;
-  stroke-dasharray: 4 !important;
+  fill: rgba(30, 41, 59, 0.3) !important;
+  stroke: #334155 !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 5, 5 !important;
+  rx: 8 !important;
+}
+
+.mermaid .cluster path {
+  fill: rgba(30, 41, 59, 0.3) !important;
+  stroke: #334155 !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 5, 5 !important;
 }
 
 .mermaid .cluster .label {
-  fill: var(--text-secondary) !important;
+  fill: #94a3b8 !important;
   font-weight: 600 !important;
+  font-size: 16px !important;
+}
+
+.mermaid .arrowheadPath {
+  fill: #64748b !important;
+  stroke: #64748b !important;
 }
 
 .spinner-sm {
@@ -1100,13 +1132,14 @@ input:checked+.toggle-slider:before {
 
 .architecture-viewport {
   min-height: 500px;
-  background: var(--bg-primary);
-  border: 2px solid var(--border);
+  background: #000000;
+  border: 2px solid #1e293b;
   border-radius: var(--radius-sm);
   padding: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .architecture-empty {

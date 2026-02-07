@@ -767,6 +767,14 @@ function CodeDNAPage() {
               linkColor={() => 'rgba(255,255,255,0.2)'}
               backgroundColor="#1a1a1a"
               onNodeClick={(node) => setSelectedNode(node)}
+              cooldownTicks={100}
+              d3AlphaDecay={0.02}
+              d3VelocityDecay={0.3}
+              d3Force={{
+                charge: { strength: -120 },
+                link: { distance: 30 },
+                center: { strength: 0.5 }
+              }}
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = node.label;
                 const fontSize = 12 / globalScale;
@@ -882,13 +890,16 @@ function Mermaid({ chart }) {
   return (
     <div className="mermaid-wrapper">
       <TransformWrapper
-        initialScale={1}
-        initialPositionX={0}
-        initialPositionY={0}
+        initialScale={0.8}
+        minScale={0.3}
+        maxScale={2}
         centerOnInit={true}
+        limitToBounds={false}
+        panning={{ disabled: false }}
+        wheel={{ step: 0.1 }}
       >
         <TransformComponent
-          wrapperStyle={{ width: "100%", height: "100%" }}
+          wrapperStyle={{ width: "100%", height: "100%", overflow: "visible" }}
           contentStyle={{ width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}
         >
           <div ref={ref} className="mermaid" style={{ cursor: 'grab' }}>
@@ -902,11 +913,10 @@ function Mermaid({ chart }) {
 
 function ArchitecturePage() {
   const [diagram, setDiagram] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const generateDiagram = async () => {
     setLoading(true);
-    setDiagram(''); // Clear old diagram
     try {
       const res = await fetch(`${API_URL}/api/architecture`, {
         method: 'POST',
@@ -922,31 +932,32 @@ function ArchitecturePage() {
     setLoading(false);
   };
 
+  // Auto-generate on mount
+  useEffect(() => {
+    generateDiagram();
+  }, []);
+
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Architecture</h1>
-        <p className="page-subtitle">Automatic system design visualization powered by Gemini</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">Architecture</h1>
+            <p className="page-subtitle">Automatic system design visualization powered by Gemini</p>
+          </div>
+          <button
+            className="btn btn-secondary"
+            onClick={generateDiagram}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Activity size={16} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Regenerating...' : 'Refresh Diagram'}
+          </button>
+        </div>
       </div>
 
       <div className="card architecture-card">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h3 className="card-title" style={{ margin: 0 }}>
-            System Architecture
-          </h3>
-          <button
-            className={`btn ${loading ? 'btn-secondary' : 'btn-primary'}`}
-            onClick={generateDiagram}
-            disabled={loading}
-          >
-            {loading ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div className="spinner-sm"></div> Analyzing Codebase...
-              </span>
-            ) : 'Generate Diagram'}
-          </button>
-        </div>
-
         <div className="architecture-viewport">
           {diagram && !loading ? (
             <Mermaid chart={diagram} />
@@ -960,8 +971,8 @@ function ArchitecturePage() {
               ) : (
                 <>
                   <div className="empty-icon"><Layers size={48} /></div>
-                  <h3>Ready to Map Architecture</h3>
-                  <p>Analyze your indexed files and generate a living architectural diagram.</p>
+                  <h3>No Diagram Yet</h3>
+                  <p>Generate failed or no data available.</p>
                 </>
               )}
             </div>
