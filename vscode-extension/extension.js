@@ -144,10 +144,11 @@ async function indexWorkspace(showNotification = false) {
       return;
     }
 
-    // Send to backend
+    // Send to backend with workspace path
     const response = await axios.post(`${getApiUrl()}/api/index`, {
       projectId,
-      files
+      files,
+      workspacePath: workspaceFolder.uri.fsPath // Send absolute path
     }, {
       timeout: 300000,
       maxContentLength: Infinity,

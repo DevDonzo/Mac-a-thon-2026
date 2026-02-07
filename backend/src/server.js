@@ -44,13 +44,15 @@ app.use((req, res, next) => {
 
 // Health check
 app.get('/health', (req, res) => {
+    const stats = vectorStore.getStats();
     res.json({
         status: 'ok',
         service: 'CodeSensei Backend',
         version: '1.0.0',
         vertexAI: isReady() ? 'connected' : 'not configured',
-        index: vectorStore.getStats(),
-        indexing: indexingStatus
+        index: stats,
+        indexing: indexingStatus,
+        workspace: vectorStore.getWorkspacePath() // Include workspace path
     });
 });
 
@@ -58,6 +60,8 @@ app.get('/health', (req, res) => {
 app.get('/api/status', (req, res) => {
     res.json({
         ready: isReady(),
+        stats: vectorStore.getStats(),
+        workspace: vectorStore.getWorkspacePath()
         index: vectorStore.getStats(),
         indexing: indexingStatus
     });
@@ -66,7 +70,7 @@ app.get('/api/status', (req, res) => {
 // Index project files
 app.post('/api/index', async (req, res) => {
     try {
-        const { projectId, files } = req.body;
+        const { projectId, files, workspacePath } = req.body;
 
         if (!projectId) {
             return res.status(400).json({ error: 'projectId is required' });
@@ -76,9 +80,47 @@ app.post('/api/index', async (req, res) => {
         indexingStatus.currentFile = 'Indexing project...';
         indexingStatus.lastUpdate = new Date().toISOString();
 
-        // If files array is empty, trigger auto-index of local directory
-        if (!files || files.length === 0) {
-            logger.info(`Auto-indexing request for project: ${projectId}`);
+        // If files array is provided, index those files (from VS Code)
+        if (files && Array.isArray(files) && files.length > 0) {
+            logger.info(`Indexing request: ${projectId}`, { fileCount: files.length });
+            
+            // Store the workspace path for dashboard re-indexing
+            if (workspacePath) {
+                vectorStore.setWorkspacePath(workspacePath);
+            }
+
+            const result = await vectorStore.indexProject(projectId, files);
+
+            indexingStatus.isIndexing = false;
+            indexingStatus.currentFile = null;
+
+            return res.json({
+                success: result.success,
+                message: result.success ? 'Project indexed successfully' : 'Indexing completed with fallback',
+                ...result,
+                stats: vectorStore.getStats()
+            });
+        }
+
+        // If no files provided, re-index the last workspace (from dashboard)
+        logger.info(`Re-indexing last workspace for project: ${projectId}`);
+        const lastWorkspace = vectorStore.getWorkspacePath();
+        
+        if (lastWorkspace) {
+            // Re-index from the stored workspace path
+            const result = await vectorStore.indexWorkspaceDirectory(lastWorkspace);
+            
+            indexingStatus.isIndexing = false;
+            indexingStatus.currentFile = null;
+            
+            return res.json({
+                success: true,
+                message: 'Workspace re-indexed successfully',
+                stats: vectorStore.getStats(),
+                workspacePath: lastWorkspace
+            });
+        } else {
+            // Fallback to local directory if no workspace stored
             await vectorStore.indexLocalDirectory();
             
             indexingStatus.isIndexing = false;
@@ -90,24 +132,7 @@ app.post('/api/index', async (req, res) => {
                 stats: vectorStore.getStats()
             });
         }
-
-        if (!Array.isArray(files)) {
-            indexingStatus.isIndexing = false;
-            return res.status(400).json({ error: 'files must be an array' });
-        }
-
-        logger.info(`Indexing request: ${projectId}`, { fileCount: files.length });
-
-        const result = await vectorStore.indexProject(projectId, files);
-
-        indexingStatus.isIndexing = false;
-        indexingStatus.currentFile = null;
-
-        res.json({
-            success: result.success,
-            message: result.success ? 'Project indexed successfully' : 'Indexing completed with fallback',
-            ...result,
-            stats: vectorStore.getStats()
+    } catch (error) {
         });
     } catch (error) {
         indexingStatus.isIndexing = false;

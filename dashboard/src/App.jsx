@@ -203,16 +203,12 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
     setIndexResult(null);
     
     try {
-      // Clear existing index first
-      await fetch(`${API_URL}/api/clear`, { method: 'POST' });
-      
-      // Trigger re-index
+      // Trigger re-index of last workspace
       const response = await fetch(`${API_URL}/api/index`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: 'Mac-a-thon-2026',
-          files: [] // Empty array triggers auto-index
+          projectId: 'workspace-reindex'
         })
       });
       
@@ -243,14 +239,19 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 className="page-title">Overview</h1>
-            <p className="page-subtitle">System status and project metrics.</p>
+            <p className="page-subtitle">
+              {status.workspace 
+                ? `Workspace: ${status.workspace.split('/').pop()}`
+                : 'System status and project metrics'}
+            </p>
           </div>
           <button 
             className="btn btn-primary"
             onClick={handleIndexProject}
-            disabled={indexing}
+            disabled={indexing || !status.workspace}
+            title={!status.workspace ? 'Open a workspace in VS Code first' : 'Re-index current workspace'}
           >
-            {indexing ? 'Indexing...' : 'Re-Index Project'}
+            {indexing ? 'Indexing...' : 'Re-Index Workspace'}
           </button>
         </div>
         {indexResult === 'success' && (
@@ -262,7 +263,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
             borderRadius: '6px',
             color: '#6ee7b7'
           }}>
-            ✓ Project indexed successfully! Refreshing...
+            ✓ Workspace indexed successfully! Refreshing...
           </div>
         )}
         {indexResult === 'error' && (

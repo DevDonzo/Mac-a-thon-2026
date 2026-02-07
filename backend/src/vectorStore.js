@@ -13,7 +13,58 @@ class VectorStore {
         this.projectId = null;
         this.indexedAt = null;
         this.hasEmbeddings = false;
+        this.workspacePath = null; // Track VS Code workspace path
         this.load(); // Try to load from cache on startup
+    }
+
+    /**
+     * Set the workspace path for re-indexing
+     */
+    setWorkspacePath(path) {
+        this.workspacePath = path;
+        logger.info('Workspace path set', { path });
+    }
+
+    /**
+     * Get the current workspace path
+     */
+    getWorkspacePath() {
+        return this.workspacePath;
+    }
+
+    /**
+     * Index files from a workspace directory path
+     */
+    async indexWorkspaceDirectory(workspacePath) {
+        logger.info(`Indexing workspace directory: ${workspacePath}`);
+
+        try {
+            const files = glob.sync('**/*.{js,jsx,ts,tsx,py,md,json}', {
+                cwd: workspacePath,
+                ignore: config.project.ignorePaths.map(p => `**/${p}/**`),
+                nodir: true,
+                absolute: false
+            });
+
+            const fileData = files.map(f => {
+                const fullPath = path.join(workspacePath, f);
+                try {
+                    return {
+                        path: f,
+                        content: fs.readFileSync(fullPath, 'utf8')
+                    };
+                } catch (e) {
+                    logger.warn(`Failed to read file: ${f}`, { error: e.message });
+                    return null;
+                }
+            }).filter(f => f !== null);
+
+            const projectName = path.basename(workspacePath);
+            return await this.indexProject(projectName, fileData);
+        } catch (error) {
+            logger.error('Workspace indexing failed', { error: error.message });
+            return { success: false, error: error.message };
+        }
     }
 
     /**
