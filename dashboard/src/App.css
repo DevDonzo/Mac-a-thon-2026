@@ -399,6 +399,14 @@ input:checked+.toggle-slider:before {
   display: flex;
   gap: 16px;
   max-width: 90%;
+  min-width: 0;
+}
+
+.message-bubble {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .message.user {
@@ -445,6 +453,7 @@ input:checked+.toggle-slider:before {
   word-wrap: break-word;
   overflow-wrap: break-word;
   max-width: 100%;
+  overflow: hidden;
 }
 
 .message.user .message-content {
@@ -1229,7 +1238,9 @@ input:checked+.toggle-slider:before {
   border-radius: var(--radius-sm);
   padding: 12px;
   overflow-x: auto;
+  overflow-y: hidden;
   margin: 12px 0;
+  max-width: 100%;
 }
 
 .message-content pre.code-block code {
@@ -1237,6 +1248,9 @@ input:checked+.toggle-slider:before {
   font-size: 0.85rem;
   line-height: 1.5;
   color: var(--text-primary);
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 
 .message-content h1,

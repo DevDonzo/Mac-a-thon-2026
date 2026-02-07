@@ -688,13 +688,18 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                       {msg.sources.map((src, idx) => {
                         // Build full absolute path for VS Code
                         const workspacePath = status?.workspace || '';
-                        const fullPath = workspacePath ? `${workspacePath}/${src.path}` : src.path;
+                        // Remove leading slash from src.path if it exists
+                        const relativePath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
+                        const fullPath = workspacePath ? `${workspacePath}/${relativePath}` : src.path;
                         
                         return (
                           <div 
                             key={idx} 
                             className="mini-source-card" 
-                            onClick={() => window.open(`vscode://file/${fullPath}:${src.startLine}`)}
+                            onClick={() => {
+                              console.log('Opening file:', fullPath);
+                              window.open(`vscode://file/${fullPath}:${src.startLine}`);
+                            }}
                           >
                             <div className="mini-source-path">{src.path}</div>
                             <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Lines {src.lines}</div>
