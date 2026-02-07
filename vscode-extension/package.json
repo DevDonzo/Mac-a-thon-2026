@@ -1,87 +1,160 @@
 {
     "name": "codesensei",
-    "displayName": "CodeSensei",
-    "description": "AI Architect and Mentor powered by Google Vertex AI and Gemini 1.5 Pro",
-    "version": "0.1.0",
-    "publisher": "mac-a-thon-2026",
+    "displayName": "CodeSensei - AI Code Mentor",
+    "description": "AI-powered code mentor using Google Vertex AI and Gemini. Get intelligent code explanations, bug detection, refactoring suggestions, and test generation with full project context.",
+    "version": "1.0.0",
+    "publisher": "codesensei",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/your-repo/codesensei"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
     "categories": [
         "Machine Learning",
         "Education",
+        "Linters",
         "Other"
     ],
     "keywords": [
         "ai",
         "gemini",
         "vertex ai",
+        "google cloud",
         "code review",
         "mentor",
-        "architecture"
+        "rag",
+        "code assistant",
+        "copilot"
     ],
-    "icon": "images/icon.png",
     "activationEvents": [
         "onStartupFinished"
     ],
     "main": "./extension.js",
+    "icon": "images/icon.png",
     "contributes": {
         "commands": [
             {
                 "command": "codesensei.ask",
-                "title": "CodeSensei: Ask for Advice"
+                "title": "Ask CodeSensei",
+                "category": "CodeSensei"
             },
             {
                 "command": "codesensei.explain",
-                "title": "CodeSensei: Explain This Code"
+                "title": "Explain This Code",
+                "category": "CodeSensei"
             },
             {
                 "command": "codesensei.findBugs",
-                "title": "CodeSensei: Find Bugs"
+                "title": "Find Bugs",
+                "category": "CodeSensei"
             },
             {
                 "command": "codesensei.refactor",
-                "title": "CodeSensei: Suggest Refactor"
+                "title": "Suggest Refactor",
+                "category": "CodeSensei"
             },
             {
                 "command": "codesensei.generateTests",
-                "title": "CodeSensei: Generate Tests"
+                "title": "Generate Tests",
+                "category": "CodeSensei"
+            },
+            {
+                "command": "codesensei.reindex",
+                "title": "Re-index Workspace",
+                "category": "CodeSensei"
+            },
+            {
+                "command": "codesensei.showMenu",
+                "title": "Show Menu",
+                "category": "CodeSensei"
+            },
+            {
+                "command": "codesensei.openOutput",
+                "title": "View Logs",
+                "category": "CodeSensei"
             }
         ],
         "menus": {
             "editor/context": [
                 {
-                    "command": "codesensei.ask",
+                    "submenu": "codesensei.submenu",
                     "group": "codesensei@1"
+                }
+            ],
+            "codesensei.submenu": [
+                {
+                    "command": "codesensei.ask",
+                    "group": "1_main@1"
                 },
                 {
                     "command": "codesensei.explain",
-                    "group": "codesensei@2"
+                    "group": "1_main@2"
                 },
                 {
                     "command": "codesensei.findBugs",
-                    "group": "codesensei@3"
+                    "group": "2_analyze@1"
                 },
                 {
                     "command": "codesensei.refactor",
-                    "group": "codesensei@4"
+                    "group": "2_analyze@2"
                 },
                 {
                     "command": "codesensei.generateTests",
-                    "group": "codesensei@5"
+                    "group": "2_analyze@3"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "codesensei.ask"
+                },
+                {
+                    "command": "codesensei.explain"
+                },
+                {
+                    "command": "codesensei.findBugs"
+                },
+                {
+                    "command": "codesensei.refactor"
+                },
+                {
+                    "command": "codesensei.generateTests"
+                },
+                {
+                    "command": "codesensei.reindex"
                 }
             ]
         },
+        "submenus": [
+            {
+                "id": "codesensei.submenu",
+                "label": "CodeSensei"
+            }
+        ],
         "keybindings": [
             {
                 "command": "codesensei.ask",
                 "key": "ctrl+shift+a",
-                "mac": "cmd+shift+a"
+                "mac": "cmd+shift+a",
+                "when": "editorTextFocus"
             },
             {
                 "command": "codesensei.explain",
                 "key": "ctrl+shift+e",
-                "mac": "cmd+shift+e"
+                "mac": "cmd+shift+e",
+                "when": "editorTextFocus && editorHasSelection"
+            },
+            {
+                "command": "codesensei.findBugs",
+                "key": "ctrl+shift+b",
+                "mac": "cmd+shift+b",
+                "when": "editorTextFocus"
+            },
+            {
+                "command": "codesensei.showMenu",
+                "key": "ctrl+shift+c",
+                "mac": "cmd+shift+c"
             }
         ],
         "configuration": {
@@ -91,18 +164,30 @@
                     "type": "string",
                     "default": "http://localhost:3000",
                     "description": "URL of the CodeSensei backend server"
+                },
+                "codesensei.autoIndex": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically index workspace on startup"
+                },
+                "codesensei.maxFilesToIndex": {
+                    "type": "number",
+                    "default": 500,
+                    "description": "Maximum number of files to index"
                 }
             }
         }
     },
     "scripts": {
         "lint": "eslint .",
-        "test": "node ./test/runTest.js"
+        "package": "vsce package",
+        "publish": "vsce publish"
     },
     "devDependencies": {
-        "@types/vscode": "^1.85.0"
+        "@types/vscode": "^1.85.0",
+        "@vscode/vsce": "^2.22.0"
     },
     "dependencies": {
-        "axios": "^1.7.2"
+        "axios": "^1.6.0"
     }
 }

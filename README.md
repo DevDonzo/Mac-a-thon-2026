@@ -1,166 +1,211 @@
-# CodeSensei: The Context-Aware AI Architect
+# CodeSensei - AI Code Mentor
 
-## Elevator Pitch
-**CodeSensei** is a proactive AI mentor that lives in your IDE and thinks in systems, not lines of code. Powered by **Google Vertex AI** and **Gemini 1.5 Pro**, it doesn't just help you code—it understands your entire project's architecture, grounds its advice in your unique documentation, and visualizes the impact of every change you make.
+An intelligent VS Code extension powered by Google Vertex AI and Gemini 1.5 Pro that provides context-aware code assistance using RAG (Retrieval-Augmented Generation).
 
----
+## Features
 
-## The Vertex AI Advantage
-
-| Feature | How Vertex AI Powers It |
-|---------|-------------------------|
-| **Deep Project Grounding** | Uses Vertex AI Vector Search to index your local project files. CodeSensei knows *your* code patterns, not just the internet's. |
-| **Massive Context Reasoning** | Leverages Gemini 1.5 Pro's 2M token context window to analyze the entire repository simultaneously. |
-| **Predictive Refactoring** | Simulates impact of code changes before you commit, preventing technical debt. |
-| **Visual Mentorship** | Generates real-time architecture diagrams and complexity heatmaps. |
-
----
-
-## Technical Architecture
-
-```
-                                 +------------------+
-                                 |   VS Code IDE    |
-                                 |  (Extension)     |
-                                 +--------+---------+
-                                          |
-                          Active file + Project context
-                                          |
-                                          v
-+----------------+              +-------------------+              +------------------+
-|   Firebase     |<----------->|   Node.js Backend |<------------>|  Vertex AI       |
-|   Realtime DB  |   State     |   (Express)       |   Gemini API |  Gemini 1.5 Pro  |
-+----------------+   Sync      +-------------------+              +------------------+
-                                          |
-                                          v
-                               +---------------------+
-                               |  Dashboard (React)  |
-                               |  Architecture Viz   |
-                               +---------------------+
-```
-
----
-
-## Implementation Phases
-
-### Phase 1: AI Backbone (Hours 0-3)
-**Goal**: Connect the IDE to Vertex AI with whole-repository awareness.
-- [x] Set up Google Cloud Project with Vertex AI enabled
-- [x] Build Node.js bridge to Gemini 1.5 Pro
-- [x] Implement Repository Crawler for project structure analysis
-- [x] Create VS Code extension with "Ask CodeSensei" command
-
-### Phase 2: Grounded Intelligence (Hours 3-6)
-**Goal**: Make the AI understand your unique codebase.
-- [ ] Integrate Vertex AI Vector Search (Embeddings API)
-- [ ] Create local Context Indexer for project files
-- [ ] Implement RAG so answers reference your actual code patterns
-
-### Phase 3: Visual Dashboard (Hours 6-9)
-**Goal**: Build the "wow factor" visualization layer.
-- [x] Design React dashboard with glassmorphism UI
-- [x] Integrate Mermaid.js for architecture diagrams
-- [ ] Real-time sync between VS Code and Dashboard via Firebase
-
-### Phase 4: Predictive Impact and Polish (Hours 9-12)
-**Goal**: The killer feature and final presentation prep.
-- [ ] Predictive Impact Mapping: "If you change this, these 5 modules need updates"
-- [ ] Mentor Mode: Pedagogical explanations with design pattern suggestions
-- [ ] Final UI polish with animations and dark mode
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| AI Engine | Google Vertex AI, Gemini 1.5 Pro |
-| Backend | Node.js, Express, Firebase Admin SDK |
-| Frontend | React (Vite), Mermaid.js |
-| IDE Integration | VS Code Extension API |
-| Database | Firebase Realtime DB |
-| Storage | Google Cloud Storage |
-
----
-
-## VS Code Extension Commands
-
-| Command | Description |
-|---------|-------------|
-| `CodeSensei: Ask for Advice` | Select code and ask for debugging help, explanations, or best practices |
-| `CodeSensei: Analyze Architecture` | Generate a visual diagram of your project's structure |
-| `CodeSensei: Predict Impact` | See which files would be affected by a proposed change |
-
----
+- **Project-Aware AI**: Indexes your entire codebase for contextual answers
+- **Smart Code Explanations**: Understand complex code with detailed explanations
+- **Bug Detection**: Find potential bugs, security issues, and edge cases
+- **Refactoring Suggestions**: Get actionable refactoring recommendations
+- **Test Generation**: Automatically generate comprehensive unit tests
+- **Architecture Visualization**: Generate Mermaid diagrams of your project
 
 ## Quick Start
 
-### 1. Configure Google Cloud
+### Prerequisites
+
+- Node.js 18+
+- Google Cloud account with Vertex AI API enabled
+- VS Code 1.85+
+
+### 1. Set Up Google Cloud
+
 ```bash
-# Set your project ID in backend/.env
-GCP_PROJECT_ID=your-project-id
-GCP_LOCATION=us-central1
+# Install gcloud CLI (if not already installed)
+# https://cloud.google.com/sdk/docs/install
+
+# Login and set project
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# Enable Vertex AI API
+gcloud services enable aiplatform.googleapis.com
+
+# Set up application default credentials
+gcloud auth application-default login
 ```
 
-### 2. Start the Backend
+### 2. Configure the Backend
+
 ```bash
 cd backend
+
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your project ID
+# GCP_PROJECT_ID=your-project-id
+# GCP_LOCATION=us-central1
+
+# Install dependencies
 npm install
-node src/server.js
+
+# Start the server
+npm start
 ```
 
-### 3. Start the Dashboard
+### 3. Install the VS Code Extension
+
 ```bash
-cd dashboard
+cd vscode-extension
+
+# Install dependencies
 npm install
-npm run dev
+
+# Option A: Run in development mode
+# Open the vscode-extension folder in VS Code
+# Press F5 to launch Extension Development Host
+
+# Option B: Package and install
+npm run package
+code --install-extension codesensei-1.0.0.vsix
 ```
 
-### 4. Load the VS Code Extension
-1. Open the `vscode-extension/` folder in VS Code
-2. Press `F5` to launch Extension Development Host
-3. In the new window, use Command Palette > `CodeSensei: Ask for Advice`
+### 4. Use CodeSensei
 
----
+1. Open any project in VS Code
+2. Wait for "CodeSensei (X files)" in the status bar
+3. Select some code and press `Cmd+Shift+A` (Mac) or `Ctrl+Shift+A` (Windows/Linux)
+4. Ask any question about your code!
+
+## Commands
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| Ask CodeSensei | `Cmd+Shift+A` | Ask any question about your code |
+| Explain This Code | `Cmd+Shift+E` | Get a detailed explanation of selected code |
+| Find Bugs | `Cmd+Shift+B` | Analyze code for bugs and issues |
+| Suggest Refactor | - | Get refactoring suggestions |
+| Generate Tests | - | Generate unit tests for code |
+| Re-index Workspace | - | Refresh the project index |
+
+## How RAG Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     VS Code Extension                           │
+│  1. Scans workspace on startup                                  │
+│  2. Sends files to backend for indexing                        │
+│  3. User asks a question                                        │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     CodeSensei Backend                          │
+│  1. Files split into semantic chunks                           │
+│  2. Embeddings generated via Vertex AI                         │
+│  3. Query embedded and similar chunks retrieved                │
+│  4. Context injected into Gemini prompt                        │
+│  5. Grounded response returned with source citations           │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Google Vertex AI                            │
+│  - text-embedding-004 for semantic embeddings                  │
+│  - gemini-1.5-pro-002 for intelligent responses                │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Project Structure
 
 ```
 codesensei/
-├── backend/
+├── backend/               # Node.js backend server
 │   ├── src/
-│   │   ├── server.js      # Express API server
-│   │   ├── ai.js          # Vertex AI integration
-│   │   └── constants.js   # System prompts
-│   └── .env               # GCP configuration
-├── vscode-extension/
+│   │   ├── server.js      # Express API
+│   │   ├── ai.js          # AI query logic
+│   │   ├── vertexai.js    # Vertex AI client
+│   │   ├── vectorStore.js # RAG vector store
+│   │   ├── prompts.js     # System prompts
+│   │   ├── config.js      # Configuration
+│   │   └── logger.js      # Winston logger
+│   ├── .env.example       # Environment template
+│   └── package.json
+│
+├── vscode-extension/      # VS Code extension
 │   ├── extension.js       # Extension logic
 │   └── package.json       # Extension manifest
-├── dashboard/
+│
+├── dashboard/             # React visualization dashboard
 │   └── src/
-│       ├── App.jsx        # Main React component
-│       └── App.css        # Glassmorphism styles
+│       ├── App.jsx        # Main component
+│       └── App.css        # Styles
+│
 └── README.md
 ```
 
----
+## API Endpoints
 
-## The Winning Demo
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/status` | GET | Index status |
+| `/api/index` | POST | Index project files |
+| `/api/ask` | POST | RAG-powered query |
+| `/api/analyze` | POST | Code analysis |
+| `/api/refactor` | POST | Refactoring suggestions |
+| `/api/tests` | POST | Test generation |
+| `/api/architecture` | POST | Architecture diagram |
 
-1. **Open a complex project** with no documentation
-2. **Ask CodeSensei**: "Explain how data flows from the UI to the database"
-3. **Watch the Dashboard** instantly render a clean architecture diagram
-4. **Propose a refactor** and see the impact heatmap highlight every affected file
-5. **Learn the pattern**: CodeSensei explains the design principle behind its recommendation
+## Configuration
 
----
+### Backend (.env)
 
-## Why This Wins
+```env
+GCP_PROJECT_ID=your-project-id    # Required
+GCP_LOCATION=us-central1          # Default: us-central1
+PORT=3000                         # Default: 3000
+LOG_LEVEL=info                    # Default: info
+```
 
-- **Solves a Real Problem**: Every developer struggles with understanding unfamiliar codebases
-- **Deep Vertex AI Integration**: Not just a chatbot—uses embeddings, massive context, and real-time analysis
-- **Visual Impact**: Live architecture diagrams during the demo create an unforgettable impression
-- **Pedagogical Focus**: Teaches students the "why" behind best practices, not just the "how"
+### Extension (VS Code Settings)
+
+```json
+{
+  "codesensei.backendUrl": "http://localhost:3000",
+  "codesensei.autoIndex": true,
+  "codesensei.maxFilesToIndex": 500
+}
+```
+
+## Troubleshooting
+
+### "Backend not running"
+Start the backend server: `cd backend && npm start`
+
+### "Vertex AI not configured"
+1. Ensure `GCP_PROJECT_ID` is set in `backend/.env`
+2. Run `gcloud auth application-default login`
+3. Ensure Vertex AI API is enabled in your project
+
+### "No files indexed"
+1. Open a workspace folder (not just a file)
+2. Wait for indexing to complete (check status bar)
+3. Try `CodeSensei: Re-index Workspace` from command palette
+
+## Technology Stack
+
+- **AI**: Google Vertex AI, Gemini 1.5 Pro
+- **Backend**: Node.js, Express
+- **Frontend**: VS Code Extension API, React (dashboard)
+- **Embeddings**: text-embedding-004
+- **Visualization**: Mermaid.js
+
+## License
+
+MIT
 
 ---
 
