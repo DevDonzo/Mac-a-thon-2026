@@ -161,6 +161,41 @@ function App() {
 
       {/* Main Content */}
       <main className="main" ref={mainRef}>
+        {/* Global Indexing Banner */}
+        {status.indexing?.isIndexing && (
+          <div style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
+            padding: '16px 24px',
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            borderRadius: '8px',
+            marginBottom: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                Indexing in Progress
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                {status.workspace && (
+                  <span style={{ opacity: 0.7 }}>
+                    {status.workspace}/
+                  </span>
+                )}
+                <span style={{ color: '#3b82f6' }}>
+                  {status.indexing.currentFile || 'processing...'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!status.ready && !loading && (
           <div className="card" style={{ borderLeft: '4px solid var(--text-primary)', background: 'var(--bg-secondary)' }}>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><XCircle size={20} /> Backend Disconnected</h3>
@@ -279,25 +314,6 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           </div>
         )}
       </div>
-
-      {/* Indexing Indicator */}
-      {status.indexing?.isIndexing && (
-        <div style={{
-          padding: '12px 16px',
-          background: 'rgba(255, 255, 255, 0.05)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '6px',
-          marginBottom: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px'
-        }}>
-          <div className="spinner-sm"></div>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Code change detected, updating index: {status.indexing.currentFile || 'processing...'}
-          </span>
-        </div>
-      )}
 
       <div className="stats-grid">
         <StatCard
