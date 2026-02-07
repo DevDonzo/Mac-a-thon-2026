@@ -208,10 +208,11 @@ LOG_LEVEL=info                    # Default: info
 ### "Backend not running"
 Start the backend server: `cd backend && npm start`
 
-### "Vertex AI not configured"
+### "Vertex AI not configured" or "Model Not Found"
 1. Ensure `GCP_PROJECT_ID` is set in `backend/.env`
 2. Run `gcloud auth application-default login`
 3. Ensure Vertex AI API is enabled in your project
+4. If you see `Model ... not found`, try changing `GCP_LOCATION` to `us-central1` or `us-west1` in `.env`
 
 ### "No files indexed"
 1. Open a workspace folder (not just a file)

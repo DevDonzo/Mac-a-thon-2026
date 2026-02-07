@@ -45,19 +45,16 @@ function App() {
           <div className="nav-section">
             <div className="nav-section-title">Main</div>
             <NavItem
-              icon="📊"
               label="Overview"
               active={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
             />
             <NavItem
-              icon="🔍"
               label="RAG Playground"
               active={activeTab === 'rag'}
               onClick={() => setActiveTab('rag')}
             />
             <NavItem
-              icon="🧬"
               label="Code DNA"
               active={activeTab === 'codedna'}
               onClick={() => setActiveTab('codedna')}
@@ -67,13 +64,11 @@ function App() {
           <div className="nav-section">
             <div className="nav-section-title">Tools</div>
             <NavItem
-              icon="🏗️"
               label="Architecture"
               active={activeTab === 'architecture'}
               onClick={() => setActiveTab('architecture')}
             />
             <NavItem
-              icon="⚙️"
               label="Settings"
               active={activeTab === 'settings'}
               onClick={() => setActiveTab('settings')}
@@ -187,26 +182,18 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
 
       <div className="stats-grid">
         <StatCard
-          icon="📁"
-          iconClass="purple"
           value={stats.filesIndexed || 0}
           label="Files Indexed"
         />
         <StatCard
-          icon="🧩"
-          iconClass="blue"
           value={stats.totalChunks || 0}
           label="Total Chunks"
         />
         <StatCard
-          icon="💻"
-          iconClass="green"
           value={stats.languages?.length || 0}
           label="Languages"
         />
         <StatCard
-          icon={mentorMode ? "🎓" : "⚡"}
-          iconClass={mentorMode ? "mentor" : "orange"}
           value={mentorMode ? 'Mentor' : 'Speed'}
           label="AI Mode"
         />
@@ -214,21 +201,21 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         <div className="card feature-card">
-          <div className="feature-icon">🎯</div>
+          <div className="feature-icon">→</div>
           <h3>RAG-Powered Context</h3>
           <p>Unlike Copilot, CodeSensei retrieves relevant code from YOUR entire project before answering. See exactly which files influenced each response.</p>
           <a href="#" className="feature-link" onClick={(e) => { e.preventDefault(); }}>Try RAG Playground →</a>
         </div>
 
         <div className="card feature-card">
-          <div className="feature-icon">🧬</div>
+          <div className="feature-icon">◊</div>
           <h3>Code DNA Visualization</h3>
           <p>Explore your codebase like never before. Interactive knowledge graph showing file relationships, dependencies, and architecture.</p>
           <a href="#" className="feature-link" onClick={(e) => { e.preventDefault(); }}>View Code DNA →</a>
         </div>
 
         <div className="card feature-card">
-          <div className="feature-icon">🎓</div>
+          <div className="feature-icon">◆</div>
           <h3>Mentor Mode</h3>
           <p>Toggle Mentor Mode for educational, Socratic responses. Learn WHY code works, not just how. Perfect for onboarding and learning.</p>
           <span className={`mode-indicator ${mentorMode ? 'active' : ''}`}>
@@ -237,7 +224,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
         </div>
 
         <div className="card feature-card">
-          <div className="feature-icon">📍</div>
+          <div className="feature-icon">◀</div>
           <h3>Jump to Source</h3>
           <p>Every AI response includes clickable source citations. Jump directly to the exact file and line in VS Code.</p>
           <span className="badge badge-new">New</span>
@@ -247,10 +234,9 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
   );
 }
 
-function StatCard({ icon, iconClass, value, label }) {
+function StatCard({ value, label }) {
   return (
     <div className="stat-card">
-      <div className={`stat-icon ${iconClass}`}>{icon}</div>
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
     </div>
@@ -274,12 +260,12 @@ function RAGPlaygroundPage({ mentorMode }) {
 
     // Simulate step progression for visualization
     const steps = [
-      { step: 'query_received', label: 'Query Received', icon: '📥' },
-      { step: 'embedding_query', label: 'Generating Query Embedding', icon: '🔢' },
-      { step: 'searching_vectors', label: 'Searching Vector Store', icon: '🔍' },
-      { step: 'ranking_results', label: 'Ranking Results', icon: '📊' },
-      { step: 'building_context', label: 'Building Context', icon: '📝' },
-      { step: 'generating_response', label: 'Generating AI Response', icon: '🤖' },
+      { step: 'query_received', label: 'Query Received', icon: '' },
+      { step: 'embedding_query', label: 'Generating Query Embedding', icon: '' },
+      { step: 'searching_vectors', label: 'Searching Vector Store', icon: '' },
+      { step: 'ranking_results', label: 'Ranking Results', icon: '' },
+      { step: 'building_context', label: 'Building Context', icon: '' },
+      { step: 'generating_response', label: 'Generating AI Response', icon: '' },
     ];
 
     // Animate through steps
@@ -322,10 +308,10 @@ function RAGPlaygroundPage({ mentorMode }) {
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">🔍 RAG Playground</h1>
+        <h1 className="page-title">RAG Playground</h1>
         <p className="page-subtitle">
           Watch how CodeSensei retrieves context from your codebase in real-time
-          {mentorMode && <span className="mentor-badge">🎓 Mentor Mode</span>}
+          {mentorMode && <span className="mentor-badge">Mentor Mode</span>}
         </p>
       </div>
 
@@ -345,7 +331,7 @@ function RAGPlaygroundPage({ mentorMode }) {
               onClick={runQuery}
               disabled={loading || !query.trim()}
             >
-              {loading ? 'Processing...' : '🚀 Run RAG Query'}
+              {loading ? 'Processing...' : 'Run RAG Query'}
             </button>
           </div>
 
@@ -375,7 +361,7 @@ function RAGPlaygroundPage({ mentorMode }) {
             <>
               {/* Sources Panel */}
               <div className="card sources-panel">
-                <h3>📚 Retrieved Context ({result.sources?.length || 0} chunks)</h3>
+                <h3>Retrieved Context ({result.sources?.length || 0} chunks)</h3>
                 <div className="sources-list">
                   {result.sources?.map((source, i) => (
                     <div key={i} className="source-card">
@@ -391,7 +377,7 @@ function RAGPlaygroundPage({ mentorMode }) {
                         className="btn btn-sm btn-secondary jump-btn"
                         onClick={() => window.open(`vscode://file/${source.path}:${source.startLine}`)}
                       >
-                        📍 Jump to Code
+                        Jump to Code
                       </button>
                     </div>
                   ))}
@@ -401,10 +387,10 @@ function RAGPlaygroundPage({ mentorMode }) {
               {/* Answer Panel */}
               <div className="card answer-panel">
                 <div className="answer-header">
-                  <h3>🤖 AI Response</h3>
+                  <h3>AI Response</h3>
                   <div className="answer-meta">
                     <span className={`mode-badge ${result.metadata?.mentorMode ? 'mentor' : 'speed'}`}>
-                      {result.metadata?.mentorMode ? '🎓 Mentor Mode' : '⚡ Speed Mode'}
+                      {result.metadata?.mentorMode ? 'Mentor Mode' : 'Speed Mode'}
                     </span>
                     <span>{result.metadata?.timeMs}ms</span>
                   </div>
@@ -418,7 +404,7 @@ function RAGPlaygroundPage({ mentorMode }) {
 
           {result?.error && (
             <div className="card error-card">
-              <h3>❌ Error</h3>
+              <h3>Error</h3>
               <p>{result.error}</p>
             </div>
           )}
@@ -551,7 +537,7 @@ function CodeDNAPage() {
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">🧬 Code DNA</h1>
+        <h1 className="page-title">Code DNA</h1>
         <p className="page-subtitle">Interactive knowledge graph of your codebase</p>
       </div>
 
@@ -559,7 +545,6 @@ function CodeDNAPage() {
         <div className="card graph-card">
           <div className="card-header">
             <h3 className="card-title">
-              <span>🕸️</span>
               Dependency Graph
             </h3>
             <button className="btn btn-secondary" onClick={loadGraph} disabled={loading}>
@@ -571,7 +556,7 @@ function CodeDNAPage() {
             <canvas ref={canvasRef} className="graph-canvas" />
           ) : (
             <div className="empty-state">
-              <div>🧬</div>
+              <div>◆</div>
               <h3>No Code DNA Yet</h3>
               <p>Index a project using the VS Code extension to visualize its structure.</p>
             </div>
@@ -581,7 +566,7 @@ function CodeDNAPage() {
         <div className="graph-sidebar">
           {graphData?.stats && (
             <div className="card">
-              <h3>📊 Graph Stats</h3>
+              <h3>Graph Stats</h3>
               <div className="graph-stats">
                 <div className="graph-stat">
                   <span className="stat-number">{graphData.stats.totalFiles}</span>
@@ -601,7 +586,7 @@ function CodeDNAPage() {
 
           {selectedNode && (
             <div className="card node-details">
-              <h3>📄 {selectedNode.label}</h3>
+              <h3>{selectedNode.label}</h3>
               <div className="node-info">
                 <p><strong>Path:</strong> {selectedNode.fullPath}</p>
                 <p><strong>Language:</strong> {selectedNode.language}</p>
@@ -623,13 +608,13 @@ function CodeDNAPage() {
                 className="btn btn-primary btn-sm"
                 onClick={() => window.open(`vscode://file/${selectedNode.fullPath}`)}
               >
-                📍 Open in VS Code
+                Open in VS Code
               </button>
             </div>
           )}
 
           <div className="card">
-            <h3>🎨 Legend</h3>
+            <h3>Legend</h3>
             <div className="legend">
               {['javascript', 'typescript', 'python', 'java'].map(lang => (
                 <div key={lang} className="legend-item">
@@ -671,7 +656,6 @@ function ArchitecturePage() {
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">
-            <span>🏗️</span>
             Project Architecture
           </h3>
           <button className="btn btn-primary" onClick={generateDiagram} disabled={loading}>
@@ -685,7 +669,7 @@ function ArchitecturePage() {
           </div>
         ) : (
           <div className="empty-state">
-            <div>🏗️</div>
+            <div>■</div>
             <h3>No Diagram Yet</h3>
             <p>Click "Generate Diagram" to create an architecture visualization of your indexed project.</p>
           </div>
@@ -706,7 +690,6 @@ function SettingsPage() {
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">
-            <span>⚙️</span>
             Configuration
           </h3>
         </div>
@@ -757,7 +740,6 @@ function SettingsPage() {
       <div className="card privacy-section">
         <div className="card-header">
           <h3 className="card-title">
-            <span>🔒</span>
             Privacy & Security
           </h3>
         </div>

@@ -1,26 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-primary: #020205;
-  --bg-secondary: #0a0a0f;
-  --bg-card: #11111a;
-  --bg-hover: #161621;
-  --text-primary: #ffffff;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --accent-primary: #818cf8;
-  --accent-secondary: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.12);
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --mentor: #f472b6;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.15);
-  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
-  --radius: 12px;
-  --radius-sm: 8px;
-  --transition: 0.2s ease;
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f0f3f7;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --accent-primary: #0369a1;
+  --accent-secondary: #0284c7;
+  --accent-glow: rgba(3, 105, 161, 0.08);
+  --success: #059669;
+  --warning: #d97706;
+  --error: #dc2626;
+  --mentor: #7c3aed;
+  --border: #e2e8f0;
+  --border-light: #cbd5e1;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --radius: 6px;
+  --radius-sm: 4px;
+  --transition: 0.15s ease;
 }
 
 * {
@@ -30,7 +30,7 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
@@ -52,6 +52,7 @@ body {
   position: fixed;
   height: 100vh;
   z-index: 100;
+  box-shadow: var(--shadow);
 }
 
 .main {
@@ -142,14 +143,21 @@ body {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(99, 102, 241, 0.1));
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   margin-bottom: 12px;
 }
 
 .privacy-icon {
-  font-size: 1.5rem;
+  font-size: 1rem;
+  width: 24px;
+  height: 24px;
+  background: var(--accent-glow);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .privacy-text {
@@ -236,7 +244,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg-hover);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   transition: 0.3s;
   border-radius: 24px;
@@ -293,8 +301,8 @@ body {
 
 /* Privacy Hero Banner */
 .privacy-hero {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(99, 102, 241, 0.1));
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 24px;
   margin-bottom: 32px;
@@ -310,12 +318,19 @@ body {
 }
 
 .privacy-hero-icon {
-  font-size: 2.5rem;
+  font-size: 1.5rem;
+  width: 48px;
+  height: 48px;
+  background: var(--accent-glow);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .privacy-hero h3 {
   margin-bottom: 4px;
-  color: var(--success);
+  color: var(--text-primary);
 }
 
 .privacy-hero p {
@@ -336,23 +351,27 @@ body {
 }
 
 .badge-green {
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--bg-primary);
   color: var(--success);
+  border: 1px solid var(--border);
 }
 
 .badge-blue {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: var(--bg-primary);
+  color: var(--accent-primary);
+  border: 1px solid var(--border);
 }
 
 .badge-purple {
-  background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
+  background: var(--bg-primary);
+  color: var(--mentor);
+  border: 1px solid var(--border);
 }
 
 .badge-new {
-  background: linear-gradient(135deg, var(--accent-primary), var(--mentor));
+  background: var(--accent-primary);
   color: white;
+  border: none;
 }
 
 /* Cards */
@@ -363,6 +382,7 @@ body {
   padding: 24px;
   margin-bottom: 24px;
   transition: var(--transition);
+  box-shadow: var(--shadow);
 }
 
 .card:hover {
@@ -397,13 +417,20 @@ body {
 }
 
 .feature-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(3, 105, 161, 0.08);
 }
 
 .feature-icon {
-  font-size: 2rem;
+  font-size: 1.5rem;
   margin-bottom: 16px;
+  width: 48px;
+  height: 48px;
+  background: var(--accent-glow);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .feature-card h3 {
@@ -434,13 +461,15 @@ body {
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 0.8rem;
-  background: var(--bg-hover);
+  background: var(--bg-primary);
   color: var(--text-secondary);
+  border: 1px solid var(--border);
 }
 
 .mode-indicator.active {
-  background: linear-gradient(135deg, var(--mentor), #a855f7);
+  background: var(--mentor);
   color: white;
+  border-color: var(--mentor);
 }
 
 /* Stats Grid */
@@ -460,45 +489,40 @@ body {
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent-primary);
-  box-shadow: 0 8px 32px var(--accent-glow);
+  transform: translateY(-1px);
+  border-color: var(--border-light);
+  box-shadow: 0 4px 16px rgba(3, 105, 161, 0.08);
 }
 
 .stat-icon {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 16px;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
 }
 
 .stat-icon.purple {
-  background: rgba(139, 92, 246, 0.15);
-  color: #a78bfa;
+  background: rgba(124, 58, 237, 0.1);
 }
 
 .stat-icon.blue {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  background: rgba(3, 105, 161, 0.1);
 }
 
 .stat-icon.green {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
+  background: rgba(5, 150, 105, 0.1);
 }
 
 .stat-icon.orange {
-  background: rgba(249, 115, 22, 0.15);
-  color: #fb923c;
+  background: rgba(217, 119, 6, 0.1);
 }
 
 .stat-icon.mentor {
-  background: rgba(244, 114, 182, 0.15);
-  color: var(--mentor);
+  background: rgba(124, 58, 237, 0.1);
 }
 
 .stat-value {
@@ -550,7 +574,7 @@ body {
 
 /* Retrieval Visualization */
 .retrieval-viz {
-  background: linear-gradient(135deg, var(--bg-card), rgba(99, 102, 241, 0.05));
+  background: var(--bg-primary);
 }
 
 .pipeline-steps {
@@ -564,7 +588,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--bg-secondary);
+  background: var(--bg-card);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   transition: var(--transition);
@@ -572,12 +596,12 @@ body {
 
 .pipeline-step.active {
   border-color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--bg-primary);
 }
 
 .pipeline-step.complete {
   border-color: var(--success);
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--bg-primary);
 }
 
 .step-icon {
@@ -623,9 +647,9 @@ body {
 }
 
 .source-card {
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   padding: 16px;
 }
 
@@ -662,12 +686,13 @@ body {
   color: var(--text-secondary);
   background: var(--bg-card);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-family: 'SF Mono', 'Consolas', monospace;
   white-space: pre-wrap;
   max-height: 80px;
   overflow: hidden;
   margin-bottom: 12px;
+  border: 1px solid var(--border);
 }
 
 .jump-btn {
@@ -681,7 +706,7 @@ body {
 
 /* Answer Panel */
 .answer-panel {
-  background: linear-gradient(135deg, var(--bg-card), rgba(99, 102, 241, 0.05));
+  background: var(--bg-primary);
 }
 
 .answer-header {
@@ -707,13 +732,14 @@ body {
 }
 
 .mode-badge.mentor {
-  background: linear-gradient(135deg, var(--mentor), #a855f7);
+  background: var(--mentor);
   color: white;
 }
 
 .mode-badge.speed {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: var(--bg-primary);
+  color: var(--accent-primary);
+  border: 1px solid var(--border);
 }
 
 .answer-content {
@@ -724,7 +750,7 @@ body {
 
 .error-card {
   border-color: var(--error);
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(220, 38, 38, 0.05);
 }
 
 /* Code DNA / Knowledge Graph */
@@ -741,9 +767,10 @@ body {
 .graph-canvas {
   width: 100%;
   height: 400px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-radius: var(--radius-sm);
   cursor: crosshair;
+  border: 1px solid var(--border);
 }
 
 .graph-sidebar {
@@ -762,8 +789,9 @@ body {
 .graph-stat {
   text-align: center;
   padding: 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
 }
 
 .stat-number {
@@ -774,7 +802,7 @@ body {
 }
 
 .node-details {
-  background: linear-gradient(135deg, var(--bg-card), rgba(99, 102, 241, 0.05));
+  background: var(--bg-primary);
 }
 
 .node-info p {
@@ -816,8 +844,8 @@ body {
 
 /* Privacy Section in Settings */
 .privacy-section {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(99, 102, 241, 0.05));
-  border-color: rgba(16, 185, 129, 0.2);
+  background: var(--bg-primary);
+  border-color: var(--border);
 }
 
 .privacy-info {
@@ -858,13 +886,14 @@ body {
 
 /* Architecture Diagram */
 .diagram-container {
-  background: #ffffff;
+  background: var(--bg-primary);
   border-radius: var(--radius);
   padding: 32px;
   min-height: 400px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--border);
 }
 
 /* Buttons */
