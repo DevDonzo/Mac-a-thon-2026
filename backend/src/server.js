@@ -137,7 +137,7 @@ app.post('/api/chat/thread', async (req, res) => {
 // Main query endpoint
 app.post('/api/ask', async (req, res) => {
     try {
-        const { prompt, context, currentFile, mentorMode, threadId, queryType = 'general' } = req.body;
+        const { prompt, context, currentFile, mentorMode, threadId, queryType = 'general', skipRAG = false } = req.body;
 
         if (!prompt) {
             return res.status(400).json({ status: 'error', message: 'Prompt is required' });
@@ -147,14 +147,16 @@ app.post('/api/ask', async (req, res) => {
         const activeFile = currentFile || (context && context[0] ? context[0] : null);
 
         let result;
-        if (indexStats.totalChunks > 0) {
+        
+        // If skipRAG is true (e.g., for "Explain Code"), just use direct generation
+        if (skipRAG || indexStats.totalChunks === 0) {
+            result = await askDirect(prompt, context || [], { queryType, mentorMode });
+        } else {
             result = await askWithRAG(prompt, activeFile, {
                 queryType,
                 mentorMode,
                 threadId
             });
-        } else {
-            result = await askDirect(prompt, context || [], { queryType, mentorMode });
         }
 
         res.json(result);

@@ -274,8 +274,15 @@ async function explainCommand() {
     return;
   }
   const text = editor.document.getText(editor.selection);
-  // Use the selected code as context for semantic search
-  await executeQuery(`Explain this code:\n\n${text}`, text, editor.document.fileName, 'general');
+  // Skip RAG for explain - just send the code directly
+  await executeQuery(
+    `Explain this code in detail:\n\n\`\`\`\n${text}\n\`\`\`\n\nWhat does it do, how does it work, and why might it be written this way?`, 
+    text, 
+    editor.document.fileName, 
+    'general',
+    false, // mentorMode
+    true  // skipRAG
+  );
 }
 
 async function findBugsCommand() {
@@ -317,13 +324,14 @@ function toggleMentorMode() {
   log('Mentor mode toggled', { enabled: mentorMode });
 }
 
-async function executeQuery(prompt, code, fileName, queryType) {
+async function executeQuery(prompt, code, fileName, queryType, useMentorMode = null, skipRAG = false) {
   const startTime = Date.now();
-  log('Executing query', { prompt: prompt.slice(0, 50), queryType, mentorMode });
+  const effectiveMentorMode = useMentorMode !== null ? useMentorMode : mentorMode;
+  log('Executing query', { prompt: prompt.slice(0, 50), queryType, mentorMode: effectiveMentorMode, skipRAG });
 
   await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
-    title: mentorMode ? "🎓 CodeSensei Mentor is thinking..." : "CodeSensei is thinking...",
+    title: effectiveMentorMode ? "🎓 CodeSensei Mentor is thinking..." : "CodeSensei is thinking...",
     cancellable: true
   }, async (progress, token) => {
     try {
@@ -338,7 +346,8 @@ async function executeQuery(prompt, code, fileName, queryType) {
           content: code
         }] : [],
         queryType,
-        mentorMode
+        mentorMode: effectiveMentorMode,
+        skipRAG
       }, {
         timeout: 120000,
         cancelToken: new axios.CancelToken(c => {
