@@ -35,10 +35,10 @@ mermaid.initialize({
     curve: 'basis',
     htmlLabels: true,
     useMaxWidth: true,
-    nodeSpacing: 60,
-    rankSpacing: 80,
-    padding: 20,
-    wrappingWidth: 200,
+    nodeSpacing: 100,
+    rankSpacing: 120,
+    padding: 40,
+    wrappingWidth: 300,
   },
   themeVariables: {
     primaryColor: '#18181b',
@@ -172,10 +172,9 @@ function App() {
       {/* Main Content */}
       <main className="main" ref={mainRef}>
         {/* Workspace Banner */}
-        <div className={`workspace-banner ${
-          status.indexing?.isIndexing ? 'indexing' : 
-          (status.workspace || stats.filesIndexed > 0) ? '' : 'empty'
-        }`}>
+        <div className={`workspace-banner ${status.indexing?.isIndexing ? 'indexing' :
+            (status.workspace || stats.filesIndexed > 0) ? '' : 'empty'
+          }`}>
           {status.indexing?.isIndexing ? (
             <div className="spinner-sm" />
           ) : (status.workspace || stats.filesIndexed > 0) ? (
@@ -185,8 +184,8 @@ function App() {
           )}
           <div className="workspace-banner-info">
             <div className="workspace-banner-label">
-              {status.indexing?.isIndexing ? 'Indexing' : 
-               (status.workspace || stats.filesIndexed > 0) ? 'Indexed Workspace' : 'No Workspace'}
+              {status.indexing?.isIndexing ? 'Indexing' :
+                (status.workspace || stats.filesIndexed > 0) ? 'Indexed Workspace' : 'No Workspace'}
             </div>
             <div className="workspace-banner-path">
               {status.workspace ? (
@@ -250,7 +249,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
   const handleIndexProject = async () => {
     setIndexing(true);
     setIndexResult(null);
-    
+
     try {
       // Trigger re-index of last workspace
       const response = await fetch(`${API_URL}/api/index`, {
@@ -260,10 +259,10 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           projectId: 'workspace-reindex'
         })
       });
-      
+
       const data = await response.json();
       setIndexResult(data.success ? 'success' : 'error');
-      
+
       // Refresh page after 2 seconds
       setTimeout(() => window.location.reload(), 2000);
     } catch (error) {
@@ -289,12 +288,12 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           <div>
             <h1 className="page-title">Overview</h1>
             <p className="page-subtitle">
-              {status.workspace 
+              {status.workspace
                 ? `Workspace: ${status.workspace.split('/').pop()}`
                 : 'System status and project metrics'}
             </p>
           </div>
-          <button 
+          <button
             className="btn btn-primary"
             onClick={handleIndexProject}
             disabled={indexing || !status.workspace}
@@ -1004,17 +1003,17 @@ function Mermaid({ chart }) {
   return (
     <div className="mermaid-wrapper">
       <TransformWrapper
-        initialScale={0.75}
-        minScale={0.3}
-        maxScale={2.5}
+        initialScale={1}
+        minScale={0.2}
+        maxScale={4}
         centerOnInit={true}
         limitToBounds={false}
-        panning={{ disabled: false }}
-        wheel={{ step: 0.08 }}
+        panning={{ disabled: false, velocityDisabled: false }}
+        wheel={{ step: 0.1 }}
       >
         <TransformComponent
-          wrapperStyle={{ width: '100%', height: '100%' }}
-          contentStyle={{ width: '100%', minHeight: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+          wrapperStyle={{ width: '100%', height: '100%', cursor: 'grab' }}
+          contentStyle={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
         >
           <div ref={ref} className="mermaid">
             {chart}
