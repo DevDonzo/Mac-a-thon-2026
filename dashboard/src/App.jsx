@@ -36,7 +36,7 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo">
-            <div className="logo-icon">CS</div>
+            <img src="/icon.png" alt="CodeSensei" className="logo-icon" />
             <span>CodeSensei</span>
           </div>
         </div>

@@ -36,65 +36,71 @@ An intelligent VS Code extension powered by Google Vertex AI and Gemini 1.5 Pro 
 - Google Cloud account with Vertex AI API enabled
 - VS Code 1.85+
 
-### 1. Set Up Google Cloud
+### 1. Set Up Google Cloud (One-Time)
 
 ```bash
-# Install gcloud CLI (if not already installed)
-# https://cloud.google.com/sdk/docs/install
+# Install gcloud CLI: https://cloud.google.com/sdk/docs/install
 
-# Login and set project
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-
-# Enable Vertex AI API
-gcloud services enable aiplatform.googleapis.com
-
-# Set up application default credentials
-gcloud auth application-default login
+# Initialize and login
+gcloud init       # Follow prompts to login and select project
+gcloud auth application-default login  # For API access
+gcloud services enable aiplatform.googleapis.com  # Enable Vertex AI
 ```
 
-### 2. Configure the Backend
+### 2. Start the Backend
 
 ```bash
 cd backend
 
-# Copy environment template
+# First time setup
 cp .env.example .env
+# Edit .env: set GCP_PROJECT_ID=your-project-id
 
-# Edit .env with your project ID
-# GCP_PROJECT_ID=your-project-id
-# GCP_LOCATION=us-central1
-
-# Install dependencies
 npm install
-
-# Start the server
 npm start
+# Server runs at http://localhost:3000
 ```
 
 ### 3. Install the VS Code Extension
 
+**Option A: Install from .vsix file (Recommended)**
 ```bash
 cd vscode-extension
-
-# Install dependencies
-npm install
-
-# Option A: Run in development mode
-# Open the vscode-extension folder in VS Code
-# Press F5 to launch Extension Development Host
-
-# Option B: Package and install
-npm run package
-code --install-extension codesensei-1.0.0.vsix
+npx vsce package                               # Creates codesensei-1.0.0.vsix
+code --install-extension codesensei-1.0.0.vsix # Install it
 ```
 
-### 4. Use CodeSensei
+**Option B: Development Mode**
+```bash
+cd vscode-extension
+npm install
+# Open folder in VS Code, press F5 to launch
+```
+
+### 4. (Optional) Launch the Dashboard
+
+```bash
+cd dashboard
+npm install
+npm run dev
+# Dashboard at http://localhost:5173
+```
+
+### 5. Use CodeSensei!
 
 1. Open any project in VS Code
-2. Wait for "CodeSensei (X files)" in the status bar
-3. Select some code and press `Cmd+Shift+A` (Mac) or `Ctrl+Shift+A` (Windows/Linux)
-4. Ask any question about your code!
+2. Wait for **"CodeSensei (X files)"** in the status bar (auto-indexes on startup)
+3. Select code and press `Cmd+Shift+A` (Mac) or `Ctrl+Shift+A` (Windows)
+4. Or right-click → **CodeSensei** submenu
+
+**Keyboard Shortcuts:**
+| Command | Mac | Windows/Linux |
+|---------|-----|---------------|
+| Ask Question | `Cmd+Shift+A` | `Ctrl+Shift+A` |
+| Explain Code | `Cmd+Shift+E` | `Ctrl+Shift+E` |
+| Find Bugs | `Cmd+Shift+B` | `Ctrl+Shift+B` |
+| Quick Menu | `Cmd+Shift+C` | `Ctrl+Shift+C` |
+
 
 ## Commands
 
