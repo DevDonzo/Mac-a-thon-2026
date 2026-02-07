@@ -2,14 +2,31 @@
 
 An intelligent VS Code extension powered by Google Vertex AI and Gemini 1.5 Pro that provides context-aware code assistance using RAG (Retrieval-Augmented Generation).
 
-## Features
+## 🚀 Why CodeSensei? (vs GitHub Copilot)
 
-- **Project-Aware AI**: Indexes your entire codebase for contextual answers
-- **Smart Code Explanations**: Understand complex code with detailed explanations
-- **Bug Detection**: Find potential bugs, security issues, and edge cases
-- **Refactoring Suggestions**: Get actionable refactoring recommendations
-- **Test Generation**: Automatically generate comprehensive unit tests
-- **Architecture Visualization**: Generate Mermaid diagrams of your project
+| Feature | Copilot | CodeSensei |
+|---------|---------|------------|
+| **Context** | Limited to open files | **Indexes your entire codebase** |
+| **Transparency** | Black box | **See exactly which files influenced each response** |
+| **Privacy** | Code sent to Microsoft/OpenAI | **Your code stays in YOUR GCP project** |
+| **Learning** | Speed-optimized | **Mentor Mode for educational responses** |
+| **Visualization** | None | **Code DNA knowledge graph** |
+
+## ✨ Features
+
+### Core AI Features
+- **🎯 RAG-Powered Context**: Every answer is grounded in YOUR actual code
+- **📍 Jump to Source**: Click any citation to open the exact file and line in VS Code
+- **🔍 Bug Detection**: Find potential bugs, security issues, and edge cases
+- **🔧 Refactoring Suggestions**: Get actionable refactoring recommendations
+- **🧪 Test Generation**: Automatically generate comprehensive unit tests
+
+### What Makes Us Different
+- **🧬 Code DNA Visualization**: Interactive knowledge graph showing file dependencies
+- **🎓 Mentor Mode**: Toggle for educational, Socratic-style responses that teach WHY
+- **📊 RAG Playground**: Watch context retrieval happen in real-time (dashboard)
+- **🔒 Privacy-First**: Code never leaves your Google Cloud project
+
 
 ## Quick Start
 

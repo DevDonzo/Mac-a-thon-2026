@@ -212,6 +212,11 @@ app.get('/api/knowledge-graph', (req, res) => {
             return res.json({
                 nodes: [],
                 edges: [],
+                stats: {
+                    totalFiles: 0,
+                    totalEdges: 0,
+                    languages: []
+                },
                 message: 'No project indexed. Index a project first.'
             });
         }
