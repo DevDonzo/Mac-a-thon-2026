@@ -5,17 +5,17 @@ const path = require('path');
 // Configuration
 const DEFAULT_API_URL = 'http://localhost:3000';
 const INCLUDE_PATTERNS = [
-    '**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx',
-    '**/*.py', '**/*.java', '**/*.go', '**/*.rs',
-    '**/*.rb', '**/*.php', '**/*.cs', '**/*.cpp',
-    '**/*.c', '**/*.swift', '**/*.kt', '**/*.scala',
-    '**/*.md', '**/*.json', '**/*.yaml', '**/*.yml'
+  '**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx',
+  '**/*.py', '**/*.java', '**/*.go', '**/*.rs',
+  '**/*.rb', '**/*.php', '**/*.cs', '**/*.cpp',
+  '**/*.c', '**/*.swift', '**/*.kt', '**/*.scala',
+  '**/*.md', '**/*.json', '**/*.yaml', '**/*.yml'
 ];
 const EXCLUDE_PATTERNS = [
-    '**/node_modules/**', '**/dist/**', '**/build/**',
-    '**/.git/**', '**/vendor/**', '**/__pycache__/**',
-    '**/venv/**', '**/.venv/**', '**/target/**',
-    '**/bin/**', '**/obj/**', '**/*.min.js', '**/*.map'
+  '**/node_modules/**', '**/dist/**', '**/build/**',
+  '**/.git/**', '**/vendor/**', '**/__pycache__/**',
+  '**/venv/**', '**/.venv/**', '**/target/**',
+  '**/bin/**', '**/obj/**', '**/*.min.js', '**/*.map'
 ];
 const MAX_FILE_SIZE = 100000; // 100KB
 const MAX_FILES = 500;
@@ -30,383 +30,389 @@ let mentorMode = false; // Toggle for educational responses
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-    outputChannel = vscode.window.createOutputChannel('CodeSensei');
-    log('CodeSensei extension activated');
+  outputChannel = vscode.window.createOutputChannel('CodeSensei');
+  log('CodeSensei extension activated');
 
-    // Status bar
-    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'codesensei.showMenu';
-    updateStatus('initializing', 'Initializing...');
-    statusBarItem.show();
-    context.subscriptions.push(statusBarItem);
+  // Status bar
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.command = 'codesensei.showMenu';
+  updateStatus('initializing', 'Initializing...');
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
-    // Register all commands
-    const commands = [
-        ['codesensei.ask', askCommand],
-        ['codesensei.explain', explainCommand],
-        ['codesensei.findBugs', findBugsCommand],
-        ['codesensei.refactor', refactorCommand],
-        ['codesensei.generateTests', generateTestsCommand],
-        ['codesensei.reindex', () => indexWorkspace(true)],
-        ['codesensei.showMenu', showQuickPick],
-        ['codesensei.openOutput', () => outputChannel.show()],
-        ['codesensei.toggleMentorMode', toggleMentorMode]
-    ];
+  // Register all commands
+  const commands = [
+    ['codesensei.ask', askCommand],
+    ['codesensei.explain', explainCommand],
+    ['codesensei.findBugs', findBugsCommand],
+    ['codesensei.refactor', refactorCommand],
+    ['codesensei.generateTests', generateTestsCommand],
+    ['codesensei.reindex', () => indexWorkspace(true)],
+    ['codesensei.showMenu', showQuickPick],
+    ['codesensei.openOutput', () => outputChannel.show()],
+    ['codesensei.toggleMentorMode', toggleMentorMode]
+  ];
 
-    for (const [cmd, handler] of commands) {
-        context.subscriptions.push(vscode.commands.registerCommand(cmd, handler));
-    }
+  for (const [cmd, handler] of commands) {
+    context.subscriptions.push(vscode.commands.registerCommand(cmd, handler));
+  }
 
-    // File watcher for auto re-index
-    const watcher = vscode.workspace.createFileSystemWatcher('**/*.{js,ts,jsx,tsx,py,java,go,rs,rb,php}');
-    let reindexTimeout;
-    const scheduleReindex = () => {
-        clearTimeout(reindexTimeout);
-        reindexTimeout = setTimeout(() => indexWorkspace(false), 10000);
-    };
-    watcher.onDidChange(scheduleReindex);
-    watcher.onDidCreate(scheduleReindex);
-    watcher.onDidDelete(scheduleReindex);
-    context.subscriptions.push(watcher);
+  // File watcher for auto re-index
+  // Watch all relevant file types defined in INCLUDE_PATTERNS
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{js,ts,jsx,tsx,py,java,go,rs,rb,php,css,html,md,json,yaml,yml,c,cpp,cs,swift,kt,scala}');
+  let reindexTimeout;
+  const scheduleReindex = () => {
+    clearTimeout(reindexTimeout);
+    // Reduce debounce to 2 seconds for snappier updates
+    reindexTimeout = setTimeout(() => {
+      log('Auto-indexing triggered by file change');
+      indexWorkspace(false);
+    }, 2000);
+  };
 
-    // Initial index
-    setTimeout(() => indexWorkspace(false), 2000);
+  watcher.onDidChange(scheduleReindex);
+  watcher.onDidCreate(scheduleReindex);
+  watcher.onDidDelete(scheduleReindex);
+  context.subscriptions.push(watcher);
+
+  // Initial index
+  setTimeout(() => indexWorkspace(false), 2000);
 }
 
 function log(message, data = null) {
-    const timestamp = new Date().toISOString().substr(11, 8);
-    const logMessage = data ? `[${timestamp}] ${message}: ${JSON.stringify(data)}` : `[${timestamp}] ${message}`;
-    outputChannel.appendLine(logMessage);
-    console.log('[CodeSensei]', message, data || '');
+  const timestamp = new Date().toISOString().substr(11, 8);
+  const logMessage = data ? `[${timestamp}] ${message}: ${JSON.stringify(data)}` : `[${timestamp}] ${message}`;
+  outputChannel.appendLine(logMessage);
+  console.log('[CodeSensei]', message, data || '');
 }
 
 function getApiUrl() {
-    return vscode.workspace.getConfiguration('codesensei').get('backendUrl') || DEFAULT_API_URL;
+  return vscode.workspace.getConfiguration('codesensei').get('backendUrl') || DEFAULT_API_URL;
 }
 
 function updateStatus(state, tooltip) {
-    const icons = {
-        initializing: '$(sync~spin)',
-        indexing: '$(sync~spin)',
-        ready: '$(mortar-board)',
-        error: '$(error)',
-        offline: '$(debug-disconnect)'
-    };
+  const icons = {
+    initializing: '$(sync~spin)',
+    indexing: '$(sync~spin)',
+    ready: '$(mortar-board)',
+    error: '$(error)',
+    offline: '$(debug-disconnect)'
+  };
 
-    const texts = {
-        initializing: 'CodeSensei',
-        indexing: `CodeSensei (indexing...)`,
-        ready: `CodeSensei (${indexedFiles} files)`,
-        error: 'CodeSensei (!)',
-        offline: 'CodeSensei (offline)'
-    };
+  const texts = {
+    initializing: 'CodeSensei',
+    indexing: `CodeSensei (indexing...)`,
+    ready: `CodeSensei (${indexedFiles} files)`,
+    error: 'CodeSensei (!)',
+    offline: 'CodeSensei (offline)'
+  };
 
-    statusBarItem.text = `${icons[state] || icons.ready} ${texts[state] || texts.ready}`;
-    statusBarItem.tooltip = tooltip;
+  statusBarItem.text = `${icons[state] || icons.ready} ${texts[state] || texts.ready}`;
+  statusBarItem.tooltip = tooltip;
 }
 
 async function indexWorkspace(showNotification = false) {
-    if (isIndexing) {
-        log('Indexing already in progress, skipping');
-        return;
+  if (isIndexing) {
+    log('Indexing already in progress, skipping');
+    return;
+  }
+
+  if (!vscode.workspace.workspaceFolders) {
+    updateStatus('error', 'No workspace folder open');
+    return;
+  }
+
+  isIndexing = true;
+  updateStatus('indexing', 'Scanning and indexing project files...');
+  log('Starting workspace indexing');
+
+  const workspaceFolder = vscode.workspace.workspaceFolders[0];
+  const projectId = path.basename(workspaceFolder.uri.fsPath);
+
+  try {
+    // Check backend connection
+    const healthCheck = await axios.get(`${getApiUrl()}/health`, { timeout: 3000 });
+    log('Backend connected', { status: healthCheck.data.status });
+
+    // Gather files
+    const files = await gatherProjectFiles(workspaceFolder.uri);
+    log(`Found ${files.length} files to index`);
+
+    if (files.length === 0) {
+      updateStatus('ready', 'No indexable files found');
+      isIndexing = false;
+      return;
     }
 
-    if (!vscode.workspace.workspaceFolders) {
-        updateStatus('error', 'No workspace folder open');
-        return;
+    // Send to backend
+    const response = await axios.post(`${getApiUrl()}/api/index`, {
+      projectId,
+      files
+    }, {
+      timeout: 300000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    });
+
+    indexedFiles = response.data.stats?.filesIndexed || files.length;
+    updateStatus('ready', `Indexed ${indexedFiles} files (${response.data.stats?.totalChunks || 0} chunks). Click for options.`);
+    log('Indexing complete', response.data.stats);
+
+    if (showNotification) {
+      vscode.window.showInformationMessage(
+        `CodeSensei: Indexed ${indexedFiles} files successfully`
+      );
     }
-
-    isIndexing = true;
-    updateStatus('indexing', 'Scanning and indexing project files...');
-    log('Starting workspace indexing');
-
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    const projectId = path.basename(workspaceFolder.uri.fsPath);
-
-    try {
-        // Check backend connection
-        const healthCheck = await axios.get(`${getApiUrl()}/health`, { timeout: 3000 });
-        log('Backend connected', { status: healthCheck.data.status });
-
-        // Gather files
-        const files = await gatherProjectFiles(workspaceFolder.uri);
-        log(`Found ${files.length} files to index`);
-
-        if (files.length === 0) {
-            updateStatus('ready', 'No indexable files found');
-            isIndexing = false;
-            return;
-        }
-
-        // Send to backend
-        const response = await axios.post(`${getApiUrl()}/api/index`, {
-            projectId,
-            files
-        }, {
-            timeout: 300000,
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-
-        indexedFiles = response.data.stats?.filesIndexed || files.length;
-        updateStatus('ready', `Indexed ${indexedFiles} files (${response.data.stats?.totalChunks || 0} chunks). Click for options.`);
-        log('Indexing complete', response.data.stats);
-
-        if (showNotification) {
-            vscode.window.showInformationMessage(
-                `CodeSensei: Indexed ${indexedFiles} files successfully`
-            );
-        }
-    } catch (error) {
-        handleConnectionError(error);
-    } finally {
-        isIndexing = false;
-    }
+  } catch (error) {
+    handleConnectionError(error);
+  } finally {
+    isIndexing = false;
+  }
 }
 
 async function gatherProjectFiles(workspaceUri) {
-    const files = [];
-    const seenPaths = new Set();
+  const files = [];
+  const seenPaths = new Set();
 
-    for (const pattern of INCLUDE_PATTERNS) {
-        if (files.length >= MAX_FILES) break;
+  for (const pattern of INCLUDE_PATTERNS) {
+    if (files.length >= MAX_FILES) break;
+
+    try {
+      const excludePattern = '{' + EXCLUDE_PATTERNS.join(',') + '}';
+      const uris = await vscode.workspace.findFiles(pattern, excludePattern, MAX_FILES - files.length);
+
+      for (const uri of uris) {
+        const relativePath = vscode.workspace.asRelativePath(uri);
+        if (seenPaths.has(relativePath)) continue;
+        seenPaths.add(relativePath);
 
         try {
-            const excludePattern = '{' + EXCLUDE_PATTERNS.join(',') + '}';
-            const uris = await vscode.workspace.findFiles(pattern, excludePattern, MAX_FILES - files.length);
+          const stat = await vscode.workspace.fs.stat(uri);
+          if (stat.size > MAX_FILE_SIZE) continue;
 
-            for (const uri of uris) {
-                const relativePath = vscode.workspace.asRelativePath(uri);
-                if (seenPaths.has(relativePath)) continue;
-                seenPaths.add(relativePath);
+          const content = await vscode.workspace.fs.readFile(uri);
+          const text = Buffer.from(content).toString('utf8');
 
-                try {
-                    const stat = await vscode.workspace.fs.stat(uri);
-                    if (stat.size > MAX_FILE_SIZE) continue;
+          // Skip binary or very short files
+          if (text.includes('\0') || text.trim().length < 10) continue;
 
-                    const content = await vscode.workspace.fs.readFile(uri);
-                    const text = Buffer.from(content).toString('utf8');
-
-                    // Skip binary or very short files
-                    if (text.includes('\0') || text.trim().length < 10) continue;
-
-                    files.push({
-                        path: relativePath,
-                        content: text
-                    });
-                } catch (e) {
-                    // Skip unreadable files
-                }
-            }
+          files.push({
+            path: relativePath,
+            content: text
+          });
         } catch (e) {
-            log('Pattern search error', { pattern, error: e.message });
+          // Skip unreadable files
         }
+      }
+    } catch (e) {
+      log('Pattern search error', { pattern, error: e.message });
     }
+  }
 
-    return files;
+  return files;
 }
 
 function handleConnectionError(error) {
-    if (error.code === 'ECONNREFUSED') {
-        updateStatus('offline', 'Backend not running. Click to see setup instructions.');
-        log('Backend connection refused');
-    } else if (error.code === 'ETIMEDOUT') {
-        updateStatus('error', 'Backend timeout');
-        log('Backend timeout', { error: error.message });
-    } else {
-        updateStatus('error', `Error: ${error.message}`);
-        log('Connection error', { error: error.message });
-    }
+  if (error.code === 'ECONNREFUSED') {
+    updateStatus('offline', 'Backend not running. Click to see setup instructions.');
+    log('Backend connection refused');
+  } else if (error.code === 'ETIMEDOUT') {
+    updateStatus('error', 'Backend timeout');
+    log('Backend timeout', { error: error.message });
+  } else {
+    updateStatus('error', `Error: ${error.message}`);
+    log('Connection error', { error: error.message });
+  }
 }
 
 async function showQuickPick() {
-    const items = [
-        { label: '$(question) Ask CodeSensei', description: 'Ask any question about your code', command: 'codesensei.ask' },
-        { label: '$(book) Explain Code', description: 'Get a detailed explanation', command: 'codesensei.explain' },
-        { label: '$(bug) Find Bugs', description: 'Analyze for bugs and issues', command: 'codesensei.findBugs' },
-        { label: '$(tools) Suggest Refactor', description: 'Get refactoring suggestions', command: 'codesensei.refactor' },
-        { label: '$(beaker) Generate Tests', description: 'Generate unit tests', command: 'codesensei.generateTests' },
-        { label: '$(refresh) Re-index Workspace', description: 'Refresh the project index', command: 'codesensei.reindex' },
-        { label: '$(output) View Logs', description: 'Open output channel', command: 'codesensei.openOutput' }
-    ];
+  const items = [
+    { label: '$(question) Ask CodeSensei', description: 'Ask any question about your code', command: 'codesensei.ask' },
+    { label: '$(book) Explain Code', description: 'Get a detailed explanation', command: 'codesensei.explain' },
+    { label: '$(bug) Find Bugs', description: 'Analyze for bugs and issues', command: 'codesensei.findBugs' },
+    { label: '$(tools) Suggest Refactor', description: 'Get refactoring suggestions', command: 'codesensei.refactor' },
+    { label: '$(beaker) Generate Tests', description: 'Generate unit tests', command: 'codesensei.generateTests' },
+    { label: '$(refresh) Re-index Workspace', description: 'Refresh the project index', command: 'codesensei.reindex' },
+    { label: '$(output) View Logs', description: 'Open output channel', command: 'codesensei.openOutput' }
+  ];
 
-    const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'What would you like CodeSensei to help with?'
-    });
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: 'What would you like CodeSensei to help with?'
+  });
 
-    if (selected) {
-        vscode.commands.executeCommand(selected.command);
-    }
+  if (selected) {
+    vscode.commands.executeCommand(selected.command);
+  }
 }
 
 async function askCommand() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showWarningMessage('Open a file first');
-        return;
-    }
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a file first');
+    return;
+  }
 
-    const selection = editor.selection;
-    const selectedText = selection.isEmpty
-        ? editor.document.getText()
-        : editor.document.getText(selection);
+  const selection = editor.selection;
+  const selectedText = selection.isEmpty
+    ? editor.document.getText()
+    : editor.document.getText(selection);
 
-    const prompt = await vscode.window.showInputBox({
-        placeHolder: "e.g., 'How does this function work?' or 'What improvements can I make?'",
-        prompt: "Ask CodeSensei anything about your code or project",
-        ignoreFocusOut: true
-    });
+  const prompt = await vscode.window.showInputBox({
+    placeHolder: "e.g., 'How does this function work?' or 'What improvements can I make?'",
+    prompt: "Ask CodeSensei anything about your code or project",
+    ignoreFocusOut: true
+  });
 
-    if (!prompt) return;
-    await executeQuery(prompt, selectedText, editor.document.fileName, 'general');
+  if (!prompt) return;
+  await executeQuery(prompt, selectedText, editor.document.fileName, 'general');
 }
 
 async function explainCommand() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.selection.isEmpty) {
-        vscode.window.showWarningMessage('Select some code to explain');
-        return;
-    }
-    const text = editor.document.getText(editor.selection);
-    await executeQuery('Explain this code in detail. What does it do, why, and how does it work?', text, editor.document.fileName, 'general');
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.selection.isEmpty) {
+    vscode.window.showWarningMessage('Select some code to explain');
+    return;
+  }
+  const text = editor.document.getText(editor.selection);
+  await executeQuery('Explain this code in detail. What does it do, why, and how does it work?', text, editor.document.fileName, 'general');
 }
 
 async function findBugsCommand() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showWarningMessage('Open a file first');
-        return;
-    }
-    const text = editor.document.getText();
-    await executeQuery('Find all potential bugs, security issues, and edge cases in this code.', text, editor.document.fileName, 'analyze');
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a file first');
+    return;
+  }
+  const text = editor.document.getText();
+  await executeQuery('Find all potential bugs, security issues, and edge cases in this code.', text, editor.document.fileName, 'analyze');
 }
 
 async function refactorCommand() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showWarningMessage('Open a file first');
-        return;
-    }
-    const selection = editor.selection;
-    const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
-    await executeQuery('Suggest refactoring improvements for this code.', text, editor.document.fileName, 'refactor');
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a file first');
+    return;
+  }
+  const selection = editor.selection;
+  const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+  await executeQuery('Suggest refactoring improvements for this code.', text, editor.document.fileName, 'refactor');
 }
 
 async function generateTestsCommand() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showWarningMessage('Open a file first');
-        return;
-    }
-    const selection = editor.selection;
-    const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
-    await executeQuery('Generate comprehensive unit tests for this code.', text, editor.document.fileName, 'test');
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a file first');
+    return;
+  }
+  const selection = editor.selection;
+  const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+  await executeQuery('Generate comprehensive unit tests for this code.', text, editor.document.fileName, 'test');
 }
 
 function toggleMentorMode() {
-    mentorMode = !mentorMode;
-    const status = mentorMode ? 'enabled' : 'disabled';
-    vscode.window.showInformationMessage(`🎓 CodeSensei Mentor Mode ${status}`);
-    log('Mentor mode toggled', { enabled: mentorMode });
+  mentorMode = !mentorMode;
+  const status = mentorMode ? 'enabled' : 'disabled';
+  vscode.window.showInformationMessage(`🎓 CodeSensei Mentor Mode ${status}`);
+  log('Mentor mode toggled', { enabled: mentorMode });
 }
 
 async function executeQuery(prompt, code, fileName, queryType) {
-    const startTime = Date.now();
-    log('Executing query', { prompt: prompt.slice(0, 50), queryType, mentorMode });
+  const startTime = Date.now();
+  log('Executing query', { prompt: prompt.slice(0, 50), queryType, mentorMode });
 
-    await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: mentorMode ? "🎓 CodeSensei Mentor is thinking..." : "CodeSensei is thinking...",
-        cancellable: true
-    }, async (progress, token) => {
-        try {
-            const response = await axios.post(`${getApiUrl()}/api/ask`, {
-                prompt,
-                context: [{
-                    path: vscode.workspace.asRelativePath(fileName),
-                    content: code
-                }],
-                queryType,
-                mentorMode
-            }, {
-                timeout: 120000,
-                cancelToken: new axios.CancelToken(c => {
-                    token.onCancellationRequested(() => c('User cancelled'));
-                })
-            });
+  await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: mentorMode ? "🎓 CodeSensei Mentor is thinking..." : "CodeSensei is thinking...",
+    cancellable: true
+  }, async (progress, token) => {
+    try {
+      const response = await axios.post(`${getApiUrl()}/api/ask`, {
+        prompt,
+        context: [{
+          path: vscode.workspace.asRelativePath(fileName),
+          content: code
+        }],
+        queryType,
+        mentorMode
+      }, {
+        timeout: 120000,
+        cancelToken: new axios.CancelToken(c => {
+          token.onCancellationRequested(() => c('User cancelled'));
+        })
+      });
 
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            log('Query completed', { elapsed: `${elapsed}s`, mode: response.data.metadata?.mode });
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      log('Query completed', { elapsed: `${elapsed}s`, mode: response.data.metadata?.mode });
 
-            showResultPanel(response.data, prompt, elapsed);
-        } catch (error) {
-            if (axios.isCancel(error)) {
-                log('Query cancelled by user');
-                return;
-            }
+      showResultPanel(response.data, prompt, elapsed);
+    } catch (error) {
+      if (axios.isCancel(error)) {
+        log('Query cancelled by user');
+        return;
+      }
 
-            log('Query failed', { error: error.message });
+      log('Query failed', { error: error.message });
 
-            if (error.code === 'ECONNREFUSED') {
-                const action = await vscode.window.showErrorMessage(
-                    'CodeSensei backend is not running.',
-                    'View Setup'
-                );
-                if (action === 'View Setup') {
-                    vscode.env.openExternal(vscode.Uri.parse('https://github.com/your-repo/codesensei#quick-start'));
-                }
-            } else {
-                vscode.window.showErrorMessage(`CodeSensei error: ${error.response?.data?.message || error.message}`);
-            }
+      if (error.code === 'ECONNREFUSED') {
+        const action = await vscode.window.showErrorMessage(
+          'CodeSensei backend is not running.',
+          'View Setup'
+        );
+        if (action === 'View Setup') {
+          vscode.env.openExternal(vscode.Uri.parse('https://github.com/your-repo/codesensei#quick-start'));
         }
-    });
+      } else {
+        vscode.window.showErrorMessage(`CodeSensei error: ${error.response?.data?.message || error.message}`);
+      }
+    }
+  });
 }
 
 function showResultPanel(data, query, elapsed) {
-    const panel = vscode.window.createWebviewPanel(
-        'codesenseiResult',
-        mentorMode ? '🎓 CodeSensei Mentor' : 'CodeSensei',
-        vscode.ViewColumn.Beside,
-        {
-            enableScripts: true,
-            retainContextWhenHidden: true
+  const panel = vscode.window.createWebviewPanel(
+    'codesenseiResult',
+    mentorMode ? '🎓 CodeSensei Mentor' : 'CodeSensei',
+    vscode.ViewColumn.Beside,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true
+    }
+  );
+
+  const answer = data.answer || '';
+  const sources = data.sources || [];
+  const metadata = data.metadata || {};
+
+  panel.webview.html = getWebviewContent(answer, query, elapsed, sources, metadata);
+
+  // Handle messages from webview (for jump-to-source)
+  panel.webview.onDidReceiveMessage(async message => {
+    if (message.command === 'openFile') {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (workspaceFolder) {
+        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, message.path);
+        try {
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+          const line = Math.max(0, (message.line || 1) - 1);
+          const position = new vscode.Position(line, 0);
+          editor.selection = new vscode.Selection(position, position);
+          editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+          log('Jumped to source', { path: message.path, line: message.line });
+        } catch (e) {
+          vscode.window.showWarningMessage(`Could not open file: ${message.path}`);
         }
-    );
-
-    const answer = data.answer || '';
-    const sources = data.sources || [];
-    const metadata = data.metadata || {};
-
-    panel.webview.html = getWebviewContent(answer, query, elapsed, sources, metadata);
-
-    // Handle messages from webview (for jump-to-source)
-    panel.webview.onDidReceiveMessage(async message => {
-        if (message.command === 'openFile') {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (workspaceFolder) {
-                const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, message.path);
-                try {
-                    const doc = await vscode.workspace.openTextDocument(fileUri);
-                    const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-                    const line = Math.max(0, (message.line || 1) - 1);
-                    const position = new vscode.Position(line, 0);
-                    editor.selection = new vscode.Selection(position, position);
-                    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
-                    log('Jumped to source', { path: message.path, line: message.line });
-                } catch (e) {
-                    vscode.window.showWarningMessage(`Could not open file: ${message.path}`);
-                }
-            }
-        }
-    });
+      }
+    }
+  });
 }
 
 function getWebviewContent(answer, query, elapsed, sources, metadata) {
-    // Convert markdown to HTML
-    const formattedAnswer = formatMarkdown(answer);
+  // Convert markdown to HTML
+  const formattedAnswer = formatMarkdown(answer);
 
-    const sourcesHtml = sources.length > 0
-        ? `<div class="sources">
+  const sourcesHtml = sources.length > 0
+    ? `<div class="sources">
         <div class="sources-header">
           <span class="icon">📚</span>
           <span>Sources Used (${sources.length} chunks) - Click to jump!</span>
@@ -425,12 +431,12 @@ function getWebviewContent(answer, query, elapsed, sources, metadata) {
           </div>
         `).join('')}
        </div>`
-        : '';
+    : '';
 
-    const modeLabel = metadata.mode === 'rag' ? 'RAG Mode (Project Context)' : 'Direct Mode';
-    const modeBadgeClass = metadata.mode === 'rag' ? 'badge-rag' : 'badge-direct';
+  const modeLabel = metadata.mode === 'rag' ? 'RAG Mode (Project Context)' : 'Direct Mode';
+  const modeBadgeClass = metadata.mode === 'rag' ? 'badge-rag' : 'badge-direct';
 
-    return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -688,39 +694,39 @@ function getWebviewContent(answer, query, elapsed, sources, metadata) {
 }
 
 function formatMarkdown(text) {
-    return text
-        // Code blocks
-        .replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) =>
-            `<pre><code class="language-${lang || ''}">${escapeHtml(code.trim())}</code></pre>`)
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Headers
-        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-        // Bold and italic
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-        // Lists
-        .replace(/^- (.+)$/gm, '<li>$1</li>')
-        .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
-        // Line breaks
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br>');
+  return text
+    // Code blocks
+    .replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre><code class="language-${lang || ''}">${escapeHtml(code.trim())}</code></pre>`)
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Headers
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Bold and italic
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Lists
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
+    // Line breaks
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
 }
 
 function escapeHtml(text) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function deactivate() {
-    if (outputChannel) {
-        outputChannel.dispose();
-    }
+  if (outputChannel) {
+    outputChannel.dispose();
+  }
 }
 
 module.exports = { activate, deactivate };

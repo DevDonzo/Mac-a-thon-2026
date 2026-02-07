@@ -246,229 +246,246 @@ function StatCard({ value, label }) {
 
 
 
+
 function RAGPlaygroundPage({ mentorMode }) {
-  const [query, setQuery] = useState('');
-  const [result, setResult] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [retrievalSteps, setRetrievalSteps] = useState([]);
   const [currentStep, setCurrentStep] = useState(-1);
   const [recentChats, setRecentChats] = useState([]);
-  const [chatId, setChatId] = useState(Date.now()); // Unique ID for current session
+  const [chatId, setChatId] = useState(Date.now());
+  const messagesEndRef = useRef(null);
 
-  // Load recent chats from localStorage on mount
+  // Auto-scroll to bottom of chat
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, retrievalSteps]);
+
+  // Load recent chats
   useEffect(() => {
     const saved = localStorage.getItem('codesensei_chats');
     if (saved) {
       try {
         setRecentChats(JSON.parse(saved));
       } catch (e) {
-        console.error('Failed to parse recent chats', e);
+        console.error('Failed to parse chats', e);
       }
     }
   }, []);
 
-  // Save specific chat to history
-  const saveToHistory = (queryText, answer) => {
-    const newChat = {
-      id: Date.now(),
-      query: queryText,
-      preview: answer ? answer.substring(0, 60) + '...' : '...',
+  const saveToHistory = (newMessages) => {
+    if (newMessages.length === 0) return;
+
+    const lastUserMsg = newMessages.findLast(m => m.role === 'user')?.content || 'New Chat';
+    const lastAiMsg = newMessages.findLast(m => m.role === 'assistant')?.content || '...';
+
+    const chatSession = {
+      id: chatId,
+      query: lastUserMsg,
+      preview: lastAiMsg.substring(0, 60) + '...',
       timestamp: new Date().toISOString(),
+      messages: newMessages, // Save full transcript
       mentorMode
     };
 
-    // Check if query is duplicate (prevent spamming same query)
-    const updated = [newChat, ...recentChats.filter(c => c.query !== queryText)].slice(0, 10);
+    const others = recentChats.filter(c => c.id !== chatId);
+    const updated = [chatSession, ...others].slice(0, 20);
     setRecentChats(updated);
     localStorage.setItem('codesensei_chats', JSON.stringify(updated));
   };
 
   const loadPastChat = (chat) => {
-    setQuery(chat.query);
-    // In a real app we'd load the full result, but for now just populate query
+    setChatId(chat.id);
+    setMessages(chat.messages || []); // Support legacy format fallback
+    if (!chat.messages) {
+      // Legacy fallback: if old format, just show the query
+      setMessages([{ role: 'user', content: chat.query, timestamp: chat.timestamp }]);
+    }
   };
 
   const clearHistory = () => {
-    setRecentChats([]);
-    localStorage.removeItem('codesensei_chats');
+    if (confirm('Clear all chat history?')) {
+      setRecentChats([]);
+      localStorage.removeItem('codesensei_chats');
+      startNewChat();
+    }
   };
 
-  const runQuery = async () => {
-    if (!query.trim()) return;
-
-    setLoading(true);
-    setResult(null);
+  const startNewChat = () => {
+    setChatId(Date.now());
+    setMessages([]);
     setRetrievalSteps([]);
-    setCurrentStep(0);
+    setInput('');
+  };
 
-    // Simulate step progression for visualization
+  const handleSend = async () => {
+    if (!input.trim()) return;
+
+    const userMsg = { role: 'user', content: input, timestamp: new Date().toISOString() };
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
+    setInput('');
+    setLoading(true);
+    setRetrievalSteps([]);
+
+    // Simulate RAG steps for UI
     const steps = [
-      { step: 'query_received', label: 'Query Received', icon: '📝' },
-      { step: 'intent_recognition', label: 'Detecting Intent (Specific vs Broad)', icon: '🧠' },
-      { step: 'embedding_query', label: 'Generating Query Embedding', icon: '🔢' },
-      { step: 'searching_vectors', label: 'Searching Vector Store', icon: '🔍' },
-      { step: 'ranking_results', label: 'Ranking & Filtering', icon: '⚖️' },
-      { step: 'building_context', label: 'Building Context', icon: '🏗️' },
-      { step: 'generating_response', label: 'Generating AI Response', icon: '✨' },
+      { label: 'Analyzing Intent...', icon: '🧠' },
+      { label: 'Searching Codebase...', icon: '🔍' },
+      { label: 'Reading Context...', icon: '📖' },
+      { label: 'Generating Answer...', icon: '✨' },
     ];
 
-    // Animate through steps
-    for (let i = 0; i < steps.length; i++) {
-      setCurrentStep(i);
-      setRetrievalSteps(prev => [...prev, { ...steps[i], status: 'active' }]);
-      await new Promise(r => setTimeout(r, 300)); // Faster animation
-      setRetrievalSteps(prev => prev.map((s, idx) =>
-        idx === i ? { ...s, status: 'complete' } : s
-      ));
-    }
-
     try {
+      // Fake progress for visual feedback
+      for (let i = 0; i < steps.length; i++) {
+        setRetrievalSteps(prev => [...prev, { ...steps[i], status: 'active' }]);
+        await new Promise(r => setTimeout(r, 600));
+        setRetrievalSteps(prev => {
+          const copy = [...prev];
+          copy[i].status = 'complete';
+          return copy;
+        });
+      }
+
       const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: query,
-          context: [],
+          prompt: userMsg.content,
+          // Send last 4 messages as conversational context
+          context: newHistory.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n'),
           mentorMode
         })
       });
+
       const data = await res.json();
-      setResult(data);
 
-      // Add completion step
-      setRetrievalSteps(prev => [...prev, {
-        step: 'complete',
-        label: `Complete (${data.metadata?.timeMs}ms)`,
-        icon: '✅',
-        status: 'complete'
-      }]);
+      const aiMsg = {
+        role: 'assistant',
+        content: data.answer,
+        sources: data.sources,
+        timestamp: new Date().toISOString(),
+        metadata: data.metadata
+      };
 
-      // Save to recent chats
-      saveToHistory(query, data.answer);
+      const finalMessages = [...newHistory, aiMsg];
+      setMessages(finalMessages);
+      saveToHistory(finalMessages);
+      setRetrievalSteps([]); // Clear steps after done
 
     } catch (e) {
-      setResult({ error: e.message });
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error: ${e.message}. Please check if the backend is running.`,
+        isError: true
+      }]);
     }
-
     setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   return (
     <>
-      <div className="page-header">
-        <h1 className="page-title">RAG Playground</h1>
-        <p className="page-subtitle">
-          Watch how CodeSensei retrieves context from your codebase in real-time
-          {mentorMode && <span className="mentor-badge">Mentor Mode</span>}
-        </p>
+      <div className="page-header" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">RAG Chat</h1>
+            <p className="page-subtitle">
+              {mentorMode ? 'Mentor Mode Active 🎓' : 'Ask questions about your codebase'}
+            </p>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={startNewChat}>
+            + New Chat
+          </button>
+        </div>
       </div>
 
       <div className="rag-layout">
-        <div className="rag-main">
-          <div className="rag-input-section">
-            <div className="card">
-              <h3>Ask a Question</h3>
-              <div className="input-wrapper">
-                <textarea
-                  className="rag-input"
-                  placeholder={mentorMode ? "I'm your mentor. Ask me to explain concepts..." : "Ask specific questions about files, functions, or architecture..."}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  rows={3}
-                />
-                <div className="input-actions">
-                  <span className="hint-text">
-                    {mentorMode ? '💡 Tip: Ask "Why..." questions' : '💡 Tip: Ask about specific files'}
-                  </span>
-                  <button
-                    className="btn btn-primary btn-lg"
-                    onClick={runQuery}
-                    disabled={loading || !query.trim()}
-                  >
-                    {loading ? 'Thinking...' : 'Run Query'}
-                  </button>
+        {/* Chat Area */}
+        <div className="chat-container">
+          <div className="chat-messages">
+            {messages.length === 0 && (
+              <div style={{ textAlign: 'center', marginTop: '100px', opacity: 0.6 }}>
+                <h2>👋 Hi there!</h2>
+                <p>I've indexed your codebase. Ask me anything!</p>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setInput('Explain the project structure')}>Explain Project</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setInput('Find any bugs in server.js')}>Find Bugs</button>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Retrieval Visualization */}
-            <div className="card retrieval-viz">
-              <h3>Retrieval Pipeline</h3>
-              <div className="pipeline-steps">
-                {retrievalSteps.map((step, i) => (
-                  <div key={i} className={`pipeline-step ${step.status}`}>
-                    <span className="step-icon">{step.icon}</span>
-                    <span className="step-label">{step.label}</span>
-                    {step.status === 'active' && <div className="step-spinner"></div>}
-                    {step.status === 'complete' && <span className="step-check">✓</span>}
+            {messages.map((msg, i) => (
+              <div key={i} className={`message ${msg.role}`}>
+                <div className="message-avatar">
+                  {msg.role === 'user' ? '👤' : '🤖'}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                  <div className="message-content">
+                    {msg.content}
                   </div>
-                ))}
-                {retrievalSteps.length === 0 && (
-                  <div className="pipeline-empty">
-                    Run a query to see the RAG pipeline in action
+
+                  {/* Sources (only for assistant) */}
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div className="sources-grid">
+                      {msg.sources.map((src, idx) => (
+                        <div key={idx} className="mini-source-card" onClick={() => window.open(`vscode://file/${src.path}:${src.startLine}`)}>
+                          <div className="mini-source-path">{src.path}</div>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>Lines {src.lines}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="message-meta">
+                    {new Date(msg.timestamp || Date.now()).toLocaleTimeString()}
+                    {msg.metadata && <span> • {msg.metadata.timeMs}ms</span>}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
+            ))}
+
+            {/* Visualizing Retrieval Process in Chat */}
+            {loading && retrievalSteps.length > 0 && (
+              <div className="retrieval-indicator">
+                <div className="step-spinner"></div>
+                <span>{retrievalSteps.findLast(s => s.status === 'active')?.label || 'Thinking...'}</span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
 
-          <div className="rag-results-section">
-            {result && !result.error && (
-              <>
-                {/* Sources Panel */}
-                <div className="card sources-panel">
-                  <h3>Retrieved Context ({result.sources?.length || 0} chunks)</h3>
-                  <div className="sources-list">
-                    {result.sources?.map((source, i) => (
-                      <div key={i} className="source-card">
-                        <div className="source-header">
-                          <span className="source-file">{source.path}</span>
-                          <span className="source-relevance">{source.relevance}</span>
-                        </div>
-                        <div className="source-lines">
-                          Lines {source.lines} • {source.language}
-                        </div>
-                        <div className="source-preview">{source.preview}</div>
-                        <button
-                          className="btn btn-sm btn-secondary jump-btn"
-                          onClick={() => window.open(`vscode://file/${source.path}:${source.startLine}`)}
-                        >
-                          Open
-                        </button>
-                      </div>
-                    ))}
-                    {(!result.sources || result.sources.length === 0) && (
-                      <div className="no-sources">
-                        No direct code matches found. Answer generated from general knowledge.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Answer Panel */}
-                <div className="card answer-panel">
-                  <div className="answer-header">
-                    <h3>AI Response</h3>
-                    <div className="answer-meta">
-                      <span className={`mode-badge ${result.metadata?.mentorMode ? 'mentor' : 'speed'}`}>
-                        {result.metadata?.mentorMode ? 'Mentor Mode' : 'Speed Mode'}
-                      </span>
-                      <span>{result.metadata?.timeMs}ms</span>
-                    </div>
-                  </div>
-                  <div className="answer-content">
-                    {result.answer}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {result?.error && (
-              <div className="card error-card">
-                <h3>Error</h3>
-                <p>{result.error}</p>
-              </div>
-            )}
+          {/* Input Area */}
+          <div className="chat-input-area">
+            <div className="chat-input-wrapper">
+              <textarea
+                className="chat-input"
+                placeholder="Type your question here... (Enter to send)"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+              <button
+                className="chat-send-btn"
+                onClick={handleSend}
+                disabled={loading || !input.trim()}
+              >
+                ➤
+              </button>
+            </div>
           </div>
         </div>
 
@@ -482,17 +499,20 @@ function RAGPlaygroundPage({ mentorMode }) {
           </div>
           <div className="history-list">
             {recentChats.map((chat) => (
-              <div key={chat.id} className="history-item" onClick={() => loadPastChat(chat)}>
+              <div
+                key={chat.id}
+                className={`history-item ${chat.id === chatId ? 'active' : ''}`}
+                onClick={() => loadPastChat(chat)}
+              >
                 <div className="history-query">{chat.query}</div>
                 <div className="history-preview">{chat.preview}</div>
                 <div className="history-meta">
                   <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  {chat.mentorMode && <span className="history-badge">Mentor</span>}
                 </div>
               </div>
             ))}
             {recentChats.length === 0 && (
-              <div className="history-empty">No recent chats</div>
+              <div className="history-empty">No history</div>
             )}
           </div>
         </aside>
