@@ -148,6 +148,7 @@ Provide a thorough, educational response. Reference specific files and line numb
     return {
         answer,
         threadId: backboardThreadId, // Return the ID so frontend can sync
+        workspacePath: vectorStore.getWorkspacePath(), // Include workspace path
         sources: relevantChunks.map(c => ({
             path: c.path,
             lines: `${c.startLine}-${c.endLine}`,

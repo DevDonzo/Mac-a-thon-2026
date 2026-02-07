@@ -449,6 +449,7 @@ function RAGPlaygroundPage({ mentorMode, status }) {
   const [chatId, setChatId] = useState(Date.now());
   const [threadId, setThreadId] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -591,6 +592,7 @@ function RAGPlaygroundPage({ mentorMode, status }) {
         role: 'assistant',
         content: data.answer,
         sources: data.sources,
+        workspacePath: data.workspacePath, // Store workspace path from response
         timestamp: new Date().toISOString(),
         metadata: data.metadata,
         threadId: data.threadId // Keep record
@@ -642,7 +644,16 @@ function RAGPlaygroundPage({ mentorMode, status }) {
 
       <div className="rag-layout">
         {/* Chat Container */}
-        <div className="chat-container">
+        <div className="chat-container" style={{ width: sidebarOpen ? 'calc(100% - 300px)' : '100%' }}>
+          {/* Sidebar Toggle Button */}
+          <button 
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          >
+            {sidebarOpen ? '→' : '←'}
+          </button>
+
           <div className="chat-messages">
             {messages.length === 0 && (
               <div className="empty-state">
@@ -686,11 +697,9 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="sources-grid">
                       {msg.sources.map((src, idx) => {
-                        // Build full absolute path for VS Code
-                        const workspacePath = status?.workspace || '';
-                        // Remove leading slash from src.path if it exists
-                        const relativePath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
-                        const fullPath = workspacePath ? `${workspacePath}/${relativePath}` : src.path;
+                        // Use workspace path from message response, fallback to status
+                        const workspacePath = msg.workspacePath || status?.workspace || '';
+                        const fullPath = workspacePath ? `${workspacePath}/${src.path}` : src.path;
                         
                         return (
                           <div 
@@ -756,37 +765,39 @@ function RAGPlaygroundPage({ mentorMode, status }) {
         </div>
 
         {/* History Sidebar */}
-        <aside className="rag-history-sidebar">
-          <div className="history-header">
-            <h3>Recent</h3>
-            {recentChats.length > 0 && !confirmClear && (
-              <button className="btn-icon" onClick={() => setConfirmClear(true)}>
-                <Trash2 size={16} />
-              </button>
-            )}
-            {confirmClear && (
-              <div className="confirm-actions">
-                <span>Sure?</span>
-                <button className="confirm-btn yes" onClick={clearHistory}>Yes</button>
-                <button className="confirm-btn no" onClick={() => setConfirmClear(false)}>No</button>
-              </div>
-            )}
-          </div>
-          <div className="history-list">
-            {recentChats.map((chat) => (
-              <div
-                key={chat.id}
-                className={`history-item ${chat.id === chatId ? 'active' : ''}`}
-                onClick={() => loadPastChat(chat)}
-              >
-                <div className="history-query">{chat.query}</div>
-                <div className="history-meta">
-                  <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        {sidebarOpen && (
+          <aside className="rag-history-sidebar">
+            <div className="history-header">
+              <h3>Recent</h3>
+              {recentChats.length > 0 && !confirmClear && (
+                <button className="btn-icon" onClick={() => setConfirmClear(true)}>
+                  <Trash2 size={16} />
+                </button>
+              )}
+              {confirmClear && (
+                <div className="confirm-actions">
+                  <span>Sure?</span>
+                  <button className="confirm-btn yes" onClick={clearHistory}>Yes</button>
+                  <button className="confirm-btn no" onClick={() => setConfirmClear(false)}>No</button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </aside>
+              )}
+            </div>
+            <div className="history-list">
+              {recentChats.map((chat) => (
+                <div
+                  key={chat.id}
+                  className={`history-item ${chat.id === chatId ? 'active' : ''}`}
+                  onClick={() => loadPastChat(chat)}
+                >
+                  <div className="history-query">{chat.query}</div>
+                  <div className="history-meta">
+                    <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
       </div>
     </>
   );
