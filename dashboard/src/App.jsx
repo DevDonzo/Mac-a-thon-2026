@@ -161,36 +161,66 @@ function App() {
 
       {/* Main Content */}
       <main className="main" ref={mainRef}>
-        {/* Global Indexing Banner */}
-        {status.indexing?.isIndexing && (
+        {/* Current Workspace Banner - Always Visible */}
+        {status.workspace && (
           <div style={{
             position: 'sticky',
             top: 0,
             zIndex: 100,
-            padding: '16px 24px',
-            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
+            padding: '12px 24px',
+            background: status.indexing?.isIndexing 
+              ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
+              : 'rgba(255, 255, 255, 0.03)',
+            border: `1px solid ${status.indexing?.isIndexing ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.1)'}`,
             borderRadius: '8px',
             marginBottom: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
           }}>
-            <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                Indexing in Progress
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {status.indexing?.isIndexing ? (
+                <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
+              ) : (
+                <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ 
+                  fontSize: '0.75rem', 
+                  color: 'var(--text-secondary)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.05em',
+                  marginBottom: '4px',
+                  fontWeight: 600
+                }}>
+                  {status.indexing?.isIndexing ? 'Indexing' : 'Indexed Workspace'}
+                </div>
+                <div style={{ 
+                  fontSize: '0.9rem', 
+                  color: 'var(--text-primary)', 
+                  fontFamily: 'monospace',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {status.workspace}
+                  {status.indexing?.isIndexing && status.indexing.currentFile && (
+                    <>
+                      <span style={{ color: 'var(--text-secondary)', margin: '0 8px' }}>/</span>
+                      <span style={{ color: '#3b82f6' }}>
+                        {status.indexing.currentFile}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                {status.workspace && (
-                  <span style={{ opacity: 0.7 }}>
-                    {status.workspace}/
-                  </span>
-                )}
-                <span style={{ color: '#3b82f6' }}>
-                  {status.indexing.currentFile || 'processing...'}
-                </span>
+              <div style={{ 
+                fontSize: '0.75rem', 
+                color: 'var(--text-secondary)',
+                padding: '4px 12px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '4px',
+                flexShrink: 0
+              }}>
+                {stats.filesIndexed || 0} files
               </div>
             </div>
           </div>
