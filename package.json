@@ -1,0 +1,11 @@
+{
+  "name": "codesensei-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CodeSensei AI Project Workspace",
+  "scripts": {
+    "backend": "cd backend && npm start",
+    "dashboard": "cd dashboard && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd dashboard && npm install && cd vscode-extension && npm install"
+  }
+}

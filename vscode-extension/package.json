@@ -1,0 +1,108 @@
+{
+    "name": "codesensei",
+    "displayName": "CodeSensei",
+    "description": "AI Architect and Mentor powered by Google Vertex AI and Gemini 1.5 Pro",
+    "version": "0.1.0",
+    "publisher": "mac-a-thon-2026",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Machine Learning",
+        "Education",
+        "Other"
+    ],
+    "keywords": [
+        "ai",
+        "gemini",
+        "vertex ai",
+        "code review",
+        "mentor",
+        "architecture"
+    ],
+    "icon": "images/icon.png",
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "codesensei.ask",
+                "title": "CodeSensei: Ask for Advice"
+            },
+            {
+                "command": "codesensei.explain",
+                "title": "CodeSensei: Explain This Code"
+            },
+            {
+                "command": "codesensei.findBugs",
+                "title": "CodeSensei: Find Bugs"
+            },
+            {
+                "command": "codesensei.refactor",
+                "title": "CodeSensei: Suggest Refactor"
+            },
+            {
+                "command": "codesensei.generateTests",
+                "title": "CodeSensei: Generate Tests"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "codesensei.ask",
+                    "group": "codesensei@1"
+                },
+                {
+                    "command": "codesensei.explain",
+                    "group": "codesensei@2"
+                },
+                {
+                    "command": "codesensei.findBugs",
+                    "group": "codesensei@3"
+                },
+                {
+                    "command": "codesensei.refactor",
+                    "group": "codesensei@4"
+                },
+                {
+                    "command": "codesensei.generateTests",
+                    "group": "codesensei@5"
+                }
+            ]
+        },
+        "keybindings": [
+            {
+                "command": "codesensei.ask",
+                "key": "ctrl+shift+a",
+                "mac": "cmd+shift+a"
+            },
+            {
+                "command": "codesensei.explain",
+                "key": "ctrl+shift+e",
+                "mac": "cmd+shift+e"
+            }
+        ],
+        "configuration": {
+            "title": "CodeSensei",
+            "properties": {
+                "codesensei.backendUrl": {
+                    "type": "string",
+                    "default": "http://localhost:3000",
+                    "description": "URL of the CodeSensei backend server"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "test": "node ./test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0"
+    },
+    "dependencies": {
+        "axios": "^1.7.2"
+    }
+}

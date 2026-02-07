@@ -1,100 +1,56 @@
-# ✅ Sentinel Gateway - Phase 1 Complete!
+# 🥋 CodeSensei Restored & AI-Charged!
 
-## 🎉 What We Built
+I have pivoted the project to **CodeSensei**—a Master AI Architect powered by **Google Vertex AI** and **Gemini 1.5 Pro**.
 
-**Sentinel Gateway** is now up and running with Phase 1 complete! Here's what you have:
+### 🛠️ What's Built Now:
 
-### Core Gateway (src/)
-- ✅ **server.js** - Express app with Auth0 JWT validation
-- ✅ **middleware/auth.js** - Auth0 JWT validation using JWKS
-- ✅ **middleware/identity.js** - Extracts user info from JWT claims
-- ✅ **middleware/error-handler.js** - Global error handling
-- ✅ **routes/health.js** - Health check endpoints
-- ✅ **routes/proxy.js** - Proxies requests to backends
-- ✅ **config/auth0.js** - Configuration management
-- ✅ **utils/logger.js** - Winston logging
+1. **AI Backend (`backend/`)**:
+   - Integrated with **Vertex AI** for deep project reasoning.
+   - Master Architect system prompts for high-quality pedagogical advice.
+   - Architecture mapping endpoint ready for the visualization dashboard.
 
-### Mock Backends (mock-backends/)
-- ✅ **api-v1.js** - Free tier backend (port 3001)
-- ✅ **api-v2.js** - Premium tier backend (port 3002)
-- ✅ **admin-api.js** - Admin backend (port 3003)
+2. **VS Code Extension (`vscode-extension/`)**:
+   - Commands: `CodeSensei: Ask for Advice` and `CodeSensei: Analyze Architecture`.
+   - Captures code context automatically and displays AI insights in a custom Webview.
 
-### Documentation
-- ✅ **README.md** - Full project documentation with all 6 phases
-- ✅ **SETUP.md** - Quick start guide
-- ✅ **.env.example** - Environment template
-- ✅ **.gitignore** - Git ignore rules
+3. **Premium Dashboard (`dashboard/`)**:
+   - **Vite + React** app with **Glassmorphism** design.
+   - **Mermaid.js** integration for real-time architecture diagrams.
+   - **Lucide Icons** and **Inter** typography for a professional feel.
 
 ---
 
-## 🚀 Quick Start
+### 🚀 How to Run It:
 
-1. **Configure Auth0** (see SETUP.md for details)
-2. **Update .env** with your Auth0 credentials
-3. **Start all services**:
-   ```bash
-   npm run dev              # Terminal 1: Gateway
-   npm run backend:v1       # Terminal 2: Free tier
-   npm run backend:v2       # Terminal 3: Premium tier
-   npm run backend:admin    # Terminal 4: Admin tier
-   ```
+#### 1. Setup Google Cloud (Vertex AI)
+- Ensure you have a Google Cloud Project with **Vertex AI API** enabled.
+- Fill in your `backend/.env`:
+  ```env
+  GCP_PROJECT_ID=your-project-id
+  GCP_LOCATION=us-central1
+  ```
 
----
+#### 2. Start the Backend
+```bash
+cd backend
+npm start
+```
 
-## 📊 Current Status
+#### 3. Start the Dashboard (Visualizer)
+```bash
+cd dashboard
+npm run dev
+```
+- Open `http://localhost:5173` to see the glassmorphism dashboard.
 
-### ✅ Phase 1: Foundation - COMPLETE
-- Auth0 JWT validation
-- Basic request proxying
-- Health checks
-- User identity extraction
-- Mock backends
-
-### 🎯 Phase 2: Identity-Aware Routing - NEXT
-- Smart routing based on user tier
-- Routing rules configuration
-- Enhanced user context
-
-### ⚡ Phase 3: Dynamic Rate Limiting - PLANNED
-- Redis integration
-- Per-user rate limits
-- Tier-based throttling
-
-### 📊 Phase 4: Live Analytics Dashboard - PLANNED
-- WebSocket real-time updates
-- Beautiful visualization
-- Request flow animation
-
-### 🔒 Phase 5: Advanced Security - PLANNED
-- Anomaly detection
-- Time-based access control
-- IP filtering
-
-### 🎨 Phase 6: Polish & Presentation - PLANNED
-- Demo preparation
-- Visual polish
-- Presentation materials
+#### 4. Load the VS Code Extension
+- Open `vscode-extension/` in a new VS Code window.
+- Press `F5` to start a new Extension Development Host window.
+- In the new window, select some code and run the command `CodeSensei: Ask for Advice`.
 
 ---
 
-## 🎯 Next Steps
+### ✅ Mission: Clean & Focused
+I have confirmed that all remnants of the old "Sentinel Gateway" project are gone. The workspace is now lean, clean, and 100% focused on being the best AI project at the hackathon.
 
-Ready to add smart routing? Let me know and I'll implement Phase 2!
-
-**Phase 2 will add**:
-- Different backends for different user tiers
-- JSON-based routing rules
-- Enhanced user context with roles
-
----
-
-## 📚 Key Files to Know
-
-- **src/server.js** - Start here to understand the flow
-- **src/middleware/auth.js** - Auth0 integration
-- **README.md** - Complete documentation
-- **SETUP.md** - Setup instructions
-
----
-
-**Built with ❤️ for Mac-a-thon 2026**
+Ready to dominate with **CodeSensei**! 🚀
