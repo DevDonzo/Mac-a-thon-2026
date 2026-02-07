@@ -74,6 +74,11 @@
                 "command": "codesensei.openOutput",
                 "title": "View Logs",
                 "category": "CodeSensei"
+            },
+            {
+                "command": "codesensei.toggleMentorMode",
+                "title": "Toggle Mentor Mode 🎓",
+                "category": "CodeSensei"
             }
         ],
         "menus": {
