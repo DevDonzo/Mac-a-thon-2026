@@ -784,6 +784,7 @@ function CodeDNAPage() {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [showSymbols, setShowSymbols] = useState(false);
   const containerRef = useRef(null);
 
   const loadGraph = async () => {
@@ -792,15 +793,40 @@ function CodeDNAPage() {
       const res = await fetch(`${API_URL}/api/knowledge-graph`);
       const data = await res.json();
 
-      // Transform data for force graph if needed, but it usually accepts nodes/links
-      // Ensure specific colors for languages
-      const coloredNodes = data.nodes.map(n => ({
+      // Transform file nodes
+      const fileNodes = data.nodes.map(n => ({
         ...n,
-        val: n.importance || 1, // Size
-        color: getLanguageColor(n.language) // Color
+        id: n.id,
+        val: (n.importance || 1) * 2,
+        color: getLanguageColor(n.language),
+        type: 'file'
       }));
 
-      setGraphData({ ...data, nodes: coloredNodes, links: data.edges });
+      // Transform symbol nodes (if showSymbols is enabled)
+      const symbolNodes = showSymbols && data.symbols ? data.symbols.map(s => ({
+        ...s,
+        val: 1,
+        color: getSymbolColor(s.type),
+        type: 'symbol',
+        label: `${s.name} (${s.type})`
+      })) : [];
+
+      // Combine nodes
+      const allNodes = [...fileNodes, ...symbolNodes];
+
+      // Add edges for file imports
+      const fileEdges = data.edges || [];
+
+      // Add edges connecting symbols to their files (if showing symbols)
+      const symbolEdges = showSymbols && data.symbols ? data.symbols.map(s => ({
+        source: s.file,
+        target: s.id,
+        type: 'contains'
+      })) : [];
+
+      const allEdges = [...fileEdges, ...symbolEdges];
+
+      setGraphData({ nodes: allNodes, links: allEdges });
     } catch (e) {
       console.error('Failed to load graph:', e);
     }
@@ -809,7 +835,17 @@ function CodeDNAPage() {
 
   useEffect(() => {
     loadGraph();
-  }, []);
+  }, [showSymbols]);
+
+  const getSymbolColor = (type) => {
+    const colors = {
+      'function': '#3b82f6', // Blue
+      'class': '#8b5cf6',    // Purple
+      'variable': '#10b981', // Green
+      'const': '#f59e0b'     // Amber
+    };
+    return colors[type] || '#6b7280';
+  };
 
   return (
     <>
@@ -817,26 +853,81 @@ function CodeDNAPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 className="page-title">Code DNA</h1>
-            <p className="page-subtitle">Interactive knowledge graph of your codebase</p>
+            <p className="page-subtitle">
+              Interactive knowledge graph • {graphData.nodes.length} nodes • {graphData.links?.length || 0} edges
+            </p>
           </div>
-          <button className="btn btn-secondary" onClick={loadGraph} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Activity size={16} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Rescanning...' : 'Refresh Graph'}
-          </button>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={showSymbols} 
+                onChange={(e) => setShowSymbols(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              Show Symbols
+            </label>
+            <button 
+              className="btn btn-secondary" 
+              onClick={loadGraph} 
+              disabled={loading} 
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Activity size={16} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Rescanning...' : 'Refresh Graph'}
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="codedna-container">
-        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#1a1a1a' }}>
+        <div className="card graph-card" ref={containerRef} style={{ padding: 0, overflow: 'hidden', height: '600px', background: '#1a1a1a', position: 'relative' }}>
+          {/* Legend */}
+          <div style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            background: 'rgba(0, 0, 0, 0.8)',
+            padding: '12px 16px',
+            borderRadius: '6px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            fontSize: '0.8rem',
+            zIndex: 10
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--text-primary)' }}>Legend</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6' }}></div>
+                <span>JavaScript</span>
+              </div>
+              {showSymbols && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }}></div>
+                    <span style={{ fontSize: '0.75rem' }}>Function</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8b5cf6' }}></div>
+                    <span style={{ fontSize: '0.75rem' }}>Class</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
+                    <span style={{ fontSize: '0.75rem' }}>Variable</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {graphData.nodes.length > 0 ? (
             <ForceGraph2D
               width={containerRef.current ? containerRef.current.clientWidth : 800}
               height={600}
               graphData={graphData}
-              nodeLabel="label"
+              nodeLabel={(node) => `${node.label || node.name}\n${node.type === 'file' ? `${node.symbolCount || 0} symbols` : ''}`}
               nodeColor="color"
               nodeRelSize={6}
-              linkColor={() => 'rgba(255,255,255,0.2)'}
+              linkColor={(link) => link.type === 'contains' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.2)'}
               backgroundColor="#1a1a1a"
               onNodeClick={(node) => setSelectedNode(node)}
               cooldownTicks={100}

@@ -284,8 +284,10 @@ app.get('/api/knowledge-graph', (req, res) => {
             return res.json({
                 nodes: [],
                 edges: [],
+                symbols: [],
                 stats: {
                     totalFiles: 0,
+                    totalSymbols: 0,
                     totalEdges: 0,
                     languages: []
                 },
@@ -293,107 +295,10 @@ app.get('/api/knowledge-graph', (req, res) => {
             });
         }
 
-        const chunks = vectorStore.getChunks();
-
-        // Build file-level nodes
-        const fileMap = new Map();
-        for (const chunk of chunks) {
-            if (!fileMap.has(chunk.path)) {
-                fileMap.set(chunk.path, {
-                    id: chunk.path,
-                    label: chunk.path.split('/').pop(),
-                    fullPath: chunk.path,
-                    language: chunk.language,
-                    chunks: 0,
-                    lines: 0,
-                    imports: new Set(),
-                    exports: new Set(),
-                    connections: 0
-                });
-            }
-            const file = fileMap.get(chunk.path);
-            file.chunks++;
-            file.lines = Math.max(file.lines, chunk.endLine || 0);
-
-            // Extract imports/exports from chunk text
-            const importMatches = chunk.text.match(/(?:import|require)\s*\(?['"]([^'"]+)['"]/g) || [];
-            const exportMatches = chunk.text.match(/(?:export|module\.exports)/g) || [];
-
-            importMatches.forEach(m => {
-                const match = m.match(/['"]([^'"]+)['"]/);
-                if (match && match[1].startsWith('.')) {
-                    file.imports.add(match[1]);
-                }
-            });
-
-            if (exportMatches.length > 0) {
-                file.exports.add('default');
-            }
-        }
-
-        // Build edges based on imports
-        const edges = [];
-        const nodes = [];
-
-        for (const [path, file] of fileMap) {
-            // Convert Sets to arrays for JSON
-            nodes.push({
-                ...file,
-                imports: Array.from(file.imports),
-                exports: Array.from(file.exports)
-            });
-
-            // Create edges for imports
-            for (const importPath of file.imports) {
-                // Resolve relative import to find target file
-                const pathParts = path.split('/');
-                pathParts.pop();
-                const basePath = pathParts.join('/');
-
-                let resolvedPath = importPath;
-                if (importPath.startsWith('./')) {
-                    resolvedPath = basePath ? `${basePath}/${importPath.slice(2)}` : importPath.slice(2);
-                } else if (importPath.startsWith('../')) {
-                    pathParts.pop();
-                    resolvedPath = pathParts.join('/') + '/' + importPath.slice(3);
-                }
-
-                // Find matching file (with or without extension)
-                const targetFile = Array.from(fileMap.keys()).find(p =>
-                    p === resolvedPath ||
-                    p === resolvedPath + '.js' ||
-                    p === resolvedPath + '.ts' ||
-                    p === resolvedPath + '.jsx' ||
-                    p === resolvedPath + '.tsx' ||
-                    p.endsWith('/' + resolvedPath.split('/').pop() + '.js')
-                );
-
-                if (targetFile) {
-                    edges.push({
-                        source: path,
-                        target: targetFile,
-                        type: 'import'
-                    });
-                    fileMap.get(path).connections++;
-                    fileMap.get(targetFile).connections++;
-                }
-            }
-        }
-
-        // Calculate importance scores
-        nodes.forEach(node => {
-            node.importance = node.connections + (node.exports.length * 2) + (node.chunks * 0.5);
-        });
-
-        res.json({
-            nodes,
-            edges,
-            stats: {
-                totalFiles: nodes.length,
-                totalEdges: edges.length,
-                languages: [...new Set(nodes.map(n => n.language))]
-            }
-        });
+        // Use the enhanced dependency graph method
+        const graph = vectorStore.getDependencyGraph();
+        
+        res.json(graph);
     } catch (error) {
         logger.error('Knowledge graph generation failed', { error: error.message });
         res.status(500).json({ error: 'Failed to generate knowledge graph' });
