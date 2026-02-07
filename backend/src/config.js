@@ -12,7 +12,7 @@ const config = {
     },
     models: {
         embedding: 'text-embedding-004',
-        generative: 'gemini-1.5-flash-001',
+        generative: 'gemini-2.0-flash-exp',
     },
     rag: {
         chunkSize: 1500,

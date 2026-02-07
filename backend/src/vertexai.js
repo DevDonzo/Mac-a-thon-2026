@@ -1,4 +1,6 @@
 const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleAuth } = require('google-auth-library');
+const axios = require('axios');
 const { config } = require('./config');
 const logger = require('./logger');
 
@@ -49,51 +51,61 @@ function initializeVertexAI() {
  * Uses the generative model to create semantic representations
  */
 async function generateEmbeddings(texts) {
-    if (!vertexAI) {
+    if (!vertexAI || !config.gcp.projectId) {
         logger.warn('Embeddings unavailable: Vertex AI not initialized');
         return null;
     }
 
     try {
-        // Use the text embedding model
-        const embeddingModel = vertexAI.getGenerativeModel({
-            model: config.models.embedding,
+        const auth = new GoogleAuth({
+            scopes: 'https://www.googleapis.com/auth/cloud-platform'
         });
+        const client = await auth.getClient();
+        const token = await client.getAccessToken();
+        const accessToken = token.token;
+
+        const url = `https://${config.gcp.location}-aiplatform.googleapis.com/v1/projects/${config.gcp.projectId}/locations/${config.gcp.location}/publishers/google/models/${config.models.embedding}:predict`;
 
         const embeddings = [];
-
-        // Process in batches to avoid rate limits
         const batchSize = 5;
+
         for (let i = 0; i < texts.length; i += batchSize) {
             const batch = texts.slice(i, i + batchSize);
+            const instances = batch.map(text => ({
+                content: text.slice(0, 8000),
+                task_type: 'RETRIEVAL_DOCUMENT'
+            }));
 
-            for (const text of batch) {
-                try {
-                    // Truncate very long texts
-                    const truncated = text.slice(0, 8000);
-                    const result = await embeddingModel.embedContent(truncated);
-
-                    if (result.embedding && result.embedding.values) {
-                        embeddings.push(result.embedding.values);
-                    } else {
-                        // Fallback: create a simple hash-based pseudo-embedding
-                        embeddings.push(createSimpleEmbedding(text));
+            try {
+                const response = await axios.post(url, { instances }, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
                     }
-                } catch (embErr) {
-                    logger.warn('Embedding failed for chunk, using fallback', { error: embErr.message });
-                    embeddings.push(createSimpleEmbedding(text));
+                });
+
+                if (response.data && response.data.predictions) {
+                    response.data.predictions.forEach(p => {
+                        embeddings.push(p.embeddings.values);
+                    });
+                } else {
+                    logger.warn('Batch response missing predictions, using fallback');
+                    batch.forEach(text => embeddings.push(createSimpleEmbedding(text)));
                 }
+            } catch (err) {
+                logger.warn('Embedding batch failed, using fallback', { error: err.message });
+                batch.forEach(text => embeddings.push(createSimpleEmbedding(text)));
             }
 
-            // Small delay between batches
+            // Small delay between batches to avoid hits on quota
             if (i + batchSize < texts.length) {
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 200));
             }
         }
 
         return embeddings;
     } catch (error) {
-        logger.error('Embeddings generation failed', { error: error.message });
+        logger.error('Embeddings generation failed fatally', { error: error.message });
         return null;
     }
 }
@@ -147,7 +159,8 @@ async function generateContent(prompt, options = {}) {
         throw new Error('Vertex AI not initialized. Check your GCP_PROJECT_ID.');
     }
 
-    const { maxRetries = 3, retryDelay = 1000 } = options;
+    const { maxRetries = 5, retryDelay = 5000 } = options;
+    let lastError = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -155,18 +168,28 @@ async function generateContent(prompt, options = {}) {
             const response = await result.response;
 
             if (response.candidates && response.candidates[0]) {
-                return response.candidates[0].content.parts[0].text;
+                const text = response.candidates[0].content.parts[0].text;
+                if (text) return text;
             }
 
-            throw new Error('No response candidates returned');
+            throw new Error('No valid response text returned from Gemini');
         } catch (error) {
-            logger.warn(`Generation attempt ${attempt} failed`, { error: error.message });
+            lastError = error;
+            const isRateLimit = error.message.includes('429') || error.message.includes('Quota');
+
+            if (isRateLimit) {
+                logger.warn(`Rate limit hit (429), attempt ${attempt}/${maxRetries}. Retrying in ${retryDelay * attempt}ms...`);
+            } else {
+                logger.warn(`Generation attempt ${attempt} failed`, { error: error.message });
+            }
 
             if (attempt === maxRetries) {
                 throw error;
             }
 
-            await new Promise(r => setTimeout(r, retryDelay * attempt));
+            // Exponential backoff with jitter
+            const backoff = retryDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            await new Promise(r => setTimeout(r, backoff));
         }
     }
 }
