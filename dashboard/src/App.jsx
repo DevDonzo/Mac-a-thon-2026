@@ -162,11 +162,8 @@ function App() {
 
       {/* Main Content */}
       <main className="main" ref={mainRef}>
-        {/* Current Workspace Banner - Always Visible */}
+        {/* Current Workspace Banner - At Top */}
         <div style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
           padding: '12px 24px',
           background: status.indexing?.isIndexing 
             ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
