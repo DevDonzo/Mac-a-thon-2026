@@ -36,7 +36,29 @@ async function askWithRAG(query, currentFile = null, options = {}) {
         addStep('embedding_query', { query: query.slice(0, 100) });
 
         // Get more chunks for visualization (show what was considered)
-        const allChunks = await vectorStore.findRelevant(query, 10);
+        let allChunks = await vectorStore.findRelevant(query, 20);
+
+        // If we have a currentFile with content, prioritize chunks from that file
+        if (currentFile?.path) {
+            const normalizedPath = currentFile.path.replace(/\\/g, '/');
+            
+            // Separate chunks: from current file vs others
+            const currentFileChunks = allChunks.filter(chunk => 
+                chunk.path.includes(normalizedPath) || normalizedPath.includes(chunk.path)
+            );
+            const otherChunks = allChunks.filter(chunk => 
+                !chunk.path.includes(normalizedPath) && !normalizedPath.includes(chunk.path)
+            );
+            
+            addStep('file_filtering', { 
+                currentFileChunks: currentFileChunks.length,
+                otherChunks: otherChunks.length,
+                targetFile: normalizedPath
+            });
+
+            // Prioritize current file chunks, but keep some others for context
+            allChunks = [...currentFileChunks.slice(0, 7), ...otherChunks.slice(0, 3)];
+        }
 
         // Smart filtering:
         // 1. If scores are very high (>0.85), it's likely a specific lookup -> use top 3
@@ -61,11 +83,12 @@ async function askWithRAG(query, currentFile = null, options = {}) {
 
         logger.info(`Retrieved ${relevantChunks.length} chunks`, {
             topScore: topScore.toFixed(3),
-            quality: contextQuality
+            quality: contextQuality,
+            fromCurrentFile: currentFile?.path ? relevantChunks.filter(c => c.path.includes(currentFile.path)).length : 0
         });
 
         // Smart Prompt Injection based on retrieval quality
-        if (contextQuality === 'low') {
+        if (contextQuality === 'low' && !currentFile?.content) {
             systemPrompt += `\n\n[IMPORTANT]: The retrieved context seems to have low relevance (Score: ${topScore.toFixed(2)}). 
             - If the user is asking a broad high-level question (e.g., "how does this app work"), attempt to synthesize an answer from the snippets but acknowledge if you are missing the big picture.
             - If the user is asking something specific and the context is missing, admit that you cannot find the specific code and answer based on general programming knowledge or ask for the file name.
@@ -82,19 +105,19 @@ async function askWithRAG(query, currentFile = null, options = {}) {
         ).join('\n\n')
         : 'No indexed project context available.';
 
-    // Include current file if provided
+    // Include current file if provided - this is the MOST important context
     const currentFileContext = currentFile?.content
-        ? `\n--- Currently Active File: ${currentFile.path} ---\n\`\`\`\n${currentFile.content}\n\`\`\``
+        ? `\n\n=== USER'S SELECTED CODE (${currentFile.path}) ===\n\`\`\`\n${currentFile.content}\n\`\`\`\n=== END SELECTED CODE ===\n\nThe user is asking specifically about the code shown above. Focus your answer on this code.`
         : '';
 
     addStep('context_built', { contextLength: retrievedContext.length + currentFileContext.length });
 
     // Build full prompt
     const fullPrompt = `${systemPrompt}
-
-PROJECT CONTEXT:
-${retrievedContext}
 ${currentFileContext}
+
+PROJECT CONTEXT (for additional reference):
+${retrievedContext}
 
 USER QUERY:
 ${query}

@@ -274,7 +274,8 @@ async function explainCommand() {
     return;
   }
   const text = editor.document.getText(editor.selection);
-  await executeQuery('Explain this code in detail. What does it do, why, and how does it work?', text, editor.document.fileName, 'general');
+  // Use the selected code as context for semantic search
+  await executeQuery(`Explain this code:\n\n${text}`, text, editor.document.fileName, 'general');
 }
 
 async function findBugsCommand() {
@@ -328,10 +329,14 @@ async function executeQuery(prompt, code, fileName, queryType) {
     try {
       const response = await axios.post(`${getApiUrl()}/api/ask`, {
         prompt,
-        context: [{
+        currentFile: {
           path: vscode.workspace.asRelativePath(fileName),
           content: code
-        }],
+        },
+        context: code ? [{
+          path: vscode.workspace.asRelativePath(fileName),
+          content: code
+        }] : [],
         queryType,
         mentorMode
       }, {
