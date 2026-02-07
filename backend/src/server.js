@@ -61,8 +61,7 @@ app.get('/api/status', (req, res) => {
     res.json({
         ready: isReady(),
         stats: vectorStore.getStats(),
-        workspace: vectorStore.getWorkspacePath()
-        index: vectorStore.getStats(),
+        workspace: vectorStore.getWorkspacePath(),
         indexing: indexingStatus
     });
 });
