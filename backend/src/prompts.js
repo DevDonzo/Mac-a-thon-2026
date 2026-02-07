@@ -33,18 +33,29 @@ Provide specific line references and concrete fixes.`,
 
 Provide before/after code examples where helpful.`,
 
-    ARCHITECTURE_PROMPT: `Analyze the project structure and generate a Mermaid diagram showing:
-- Key components and their relationships
-- Data flow between modules
-- External dependencies
+    ARCHITECTURE_PROMPT: `Analyze the project structure and generate a high-detail Mermaid diagram.
+Focus on being "zoomed in" by grouping related files into logical subgraphs (e.g., Backend, Frontend, API, Database, Internal Libs).
 
-Output ONLY valid Mermaid syntax. Use 'graph TD' for top-down layout.
+GUIDELINES:
+1. Use 'graph LR' (Left-to-Right) for a more readable, zoomed-in layout.
+2. Group files into subgraphs based on their folder structure.
+3. Use specific node shapes: [Node] for files, {{Node}} for processes, [[Node]] for databases.
+4. Highlight the main entry points.
+5. Use consistent monochromatic styling.
+
+Output ONLY valid Mermaid syntax.
 Example:
 \`\`\`mermaid
-graph TD
-    A[Client] --> B[API Gateway]
-    B --> C[Service Layer]
-    C --> D[Database]
+graph LR
+    subgraph Frontend
+        App --> Components
+        Components --> Hooks
+    end
+    subgraph Backend
+        Server --> Routes
+        Routes --> Logic
+    end
+    Backend --> Database[(Storage)]
 \`\`\``,
 
     TEST_PROMPT: `Generate comprehensive unit tests for this code. Include:

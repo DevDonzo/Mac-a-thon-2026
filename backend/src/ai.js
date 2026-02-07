@@ -221,25 +221,56 @@ async function generateArchitecture() {
         return { diagram: 'No project indexed. Index a project first.' };
     }
 
-    const chunks = vectorStore.getChunks();
-    const files = [...new Set(chunks.map(c => c.path))];
+    // Get dependency graph from vector store
+    const { nodes, edges } = vectorStore.getDependencyGraph();
 
-    const fileList = files.map(f => `- ${f}`).join('\n');
+    // Format nodes for prompt
+    const nodeList = nodes.map(n => `- ${n.label} (${n.fullPath})`).join('\n');
+
+    // Format edges for prompt
+    const edgeList = edges.map(e => {
+        const source = e.source.split('/').pop();
+        const target = e.target.split('/').pop();
+        return `${source} relies on ${target}`;
+    }).join('\n');
 
     const fullPrompt = `${prompts.ARCHITECTURE_PROMPT}
 
 PROJECT FILES:
-${fileList}
+${nodeList}
 
-Generate a Mermaid diagram showing the architecture.`;
+OBSERVED DEPENDENCIES (IMPORTS):
+${edgeList}
+
+INSTRUCTIONS:
+1. Use the observed dependencies to draw arrows between components.
+2. Group files logically into subgraphs (e.g. Backend, Frontend, Utilities) based on their paths/names.
+3. If a file is not in the dependency list but is in the project files, show it as a standalone node or connect it based on potential inferred relationships (but use dotted lines for inferred).
+4. Do NOT hallucinate dependencies that contradict the observed list.`;
 
     const answer = await generateContent(fullPrompt);
 
-    // Extract mermaid code if wrapped
-    const mermaidMatch = answer.match(/```mermaid\n([\s\S]*?)```/);
-    const diagram = mermaidMatch ? mermaidMatch[1].trim() : answer;
 
-    return { diagram, files };
+    // Robust extraction of Mermaid code
+    let diagram = answer;
+
+    // 1. Match code blocks first
+    const codeBlockMatch = answer.match(/```(?:mermaid)?\n?([\s\S]*?)```/);
+    if (codeBlockMatch) {
+        diagram = codeBlockMatch[1].trim();
+    } else {
+        // 2. If no code block, find keywords like 'graph TD' and keep everything from there
+        const keywords = ['graph TD', 'graph LR', 'sequenceDiagram', 'classDiagram', 'stateDiagram', 'erDiagram', 'gantt', 'pie', 'gitGraph'];
+        for (const kw of keywords) {
+            const index = answer.indexOf(kw);
+            if (index !== -1) {
+                diagram = answer.substring(index).trim();
+                break;
+            }
+        }
+    }
+
+    return { diagram, files: nodes.map(n => n.fullPath) };
 }
 
 function getSystemPrompt(queryType, mentorMode = false) {

@@ -19,6 +19,11 @@ const config = {
         chunkOverlap: 200,
         topK: 5,
         minRelevanceScore: 0.3,
+    },
+    project: {
+        root: process.env.PROJECT_ROOT || '../', // Default to parent of backend
+        autoIndex: true,
+        ignorePaths: ['node_modules', '.git', 'dist', 'build', '.next', 'package-lock.json']
     }
 };
 

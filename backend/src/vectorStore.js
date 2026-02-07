@@ -1,6 +1,11 @@
 const { config } = require('./config');
 const { generateEmbeddings, cosineSimilarity, createSimpleEmbedding } = require('./vertexai');
 const logger = require('./logger');
+const fs = require('fs');
+const path = require('path');
+const glob = require('glob');
+
+const CACHE_FILE = path.join(__dirname, '../vector_cache.json');
 
 class VectorStore {
     constructor() {
@@ -8,6 +13,7 @@ class VectorStore {
         this.projectId = null;
         this.indexedAt = null;
         this.hasEmbeddings = false;
+        this.load(); // Try to load from cache on startup
     }
 
     /**
@@ -73,12 +79,78 @@ class VectorStore {
             timeMs: elapsed
         });
 
+        this.save(); // Save to cache
+
         return {
             success: true,
             chunksIndexed: this.chunks.length,
             filesIndexed: new Set(this.chunks.map(c => c.path)).size,
             timeMs: elapsed
         };
+    }
+
+    /**
+     * Scan and index local filesystem automatically
+     */
+    async indexLocalDirectory() {
+        const rootPath = path.resolve(__dirname, config.project.root);
+        logger.info(`Auto-indexing local directory: ${rootPath}`);
+
+        try {
+            const files = glob.sync('**/*.{js,jsx,ts,tsx,py,md,json}', {
+                cwd: rootPath,
+                ignore: config.project.ignorePaths.map(p => `**/${p}/**`),
+                nodir: true
+            });
+
+            const fileData = files.map(f => {
+                const fullPath = path.join(rootPath, f);
+                // Return relative path for display, but need content
+                try {
+                    return {
+                        path: f,
+                        content: fs.readFileSync(fullPath, 'utf8')
+                    };
+                } catch (e) {
+                    return null;
+                }
+            }).filter(f => f !== null);
+
+            return await this.indexProject('local-project', fileData);
+        } catch (error) {
+            logger.error('Auto-indexing failed', { error: error.message });
+            return { success: false, error: error.message };
+        }
+    }
+
+    save() {
+        try {
+            const data = {
+                chunks: this.chunks,
+                projectId: this.projectId,
+                indexedAt: this.indexedAt,
+                hasEmbeddings: this.hasEmbeddings
+            };
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(data));
+            logger.info('Vector store saved to cache');
+        } catch (e) {
+            logger.error('Failed to save vector store', { error: e.message });
+        }
+    }
+
+    load() {
+        try {
+            if (fs.existsSync(CACHE_FILE)) {
+                const data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+                this.chunks = data.chunks;
+                this.projectId = data.projectId;
+                this.indexedAt = data.indexedAt;
+                this.hasEmbeddings = data.hasEmbeddings;
+                logger.info('Vector store loaded from cache', { chunks: this.chunks.length });
+            }
+        } catch (e) {
+            logger.error('Failed to load vector store', { error: e.message });
+        }
     }
 
     /**
@@ -250,6 +322,101 @@ class VectorStore {
         this.projectId = null;
         this.indexedAt = null;
         this.hasEmbeddings = false;
+    }
+    getDependencyGraph() {
+        const chunks = this.chunks;
+        const fileMap = new Map();
+
+        // 1. Build nodes from chunks
+        for (const chunk of chunks) {
+            if (!fileMap.has(chunk.path)) {
+                fileMap.set(chunk.path, {
+                    id: chunk.path,
+                    label: chunk.path.split('/').pop(),
+                    fullPath: chunk.path,
+                    language: chunk.language,
+                    chunks: 0,
+                    lines: 0,
+                    imports: new Set(),
+                    exports: new Set(),
+                    connections: 0
+                });
+            }
+            const file = fileMap.get(chunk.path);
+            file.chunks++;
+            file.lines = Math.max(file.lines, chunk.endLine || 0);
+
+            // Extract imports/exports from chunk text
+            const importMatches = chunk.text.match(/(?:import|require)\s*\(?['"]([^'"]+)['"]/g) || [];
+            const exportMatches = chunk.text.match(/(?:export|module\.exports)/g) || [];
+
+            importMatches.forEach(m => {
+                const match = m.match(/['"]([^'"]+)['"]/);
+                if (match && match[1].startsWith('.')) {
+                    file.imports.add(match[1]);
+                }
+            });
+
+            if (exportMatches.length > 0) {
+                file.exports.add('default');
+            }
+        }
+
+        // 2. Build edges based on imports
+        const edges = [];
+        const nodes = [];
+
+        for (const [path, file] of fileMap) {
+            // Convert Sets to arrays for JSON
+            nodes.push({
+                ...file,
+                imports: Array.from(file.imports),
+                exports: Array.from(file.exports)
+            });
+
+            // Create edges for imports
+            for (const importPath of file.imports) {
+                // Resolve relative import to find target file
+                const pathParts = path.split('/');
+                pathParts.pop();
+                const basePath = pathParts.join('/');
+
+                let resolvedPath = importPath;
+                if (importPath.startsWith('./')) {
+                    resolvedPath = basePath ? `${basePath}/${importPath.slice(2)}` : importPath.slice(2);
+                } else if (importPath.startsWith('../')) {
+                    pathParts.pop();
+                    resolvedPath = pathParts.join('/') + '/' + importPath.slice(3);
+                }
+
+                // Find matching file (with or without extension)
+                const targetFile = Array.from(fileMap.keys()).find(p =>
+                    p === resolvedPath ||
+                    p === resolvedPath + '.js' ||
+                    p === resolvedPath + '.ts' ||
+                    p === resolvedPath + '.jsx' ||
+                    p === resolvedPath + '.tsx' ||
+                    p.endsWith('/' + resolvedPath.split('/').pop() + '.js')
+                );
+
+                if (targetFile) {
+                    edges.push({
+                        source: path,
+                        target: targetFile,
+                        type: 'import'
+                    });
+                    fileMap.get(path).connections++;
+                    fileMap.get(targetFile).connections++;
+                }
+            }
+        }
+
+        // 3. Calculate importance scores
+        nodes.forEach(node => {
+            node.importance = node.connections + (node.exports.length * 2) + (node.chunks * 0.5);
+        });
+
+        return { nodes, edges };
     }
 }
 

@@ -1,14 +1,55 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import ForceGraph2D from 'react-force-graph-2d';
+import mermaid from 'mermaid';
+import {
+  Activity,
+  MessageSquare,
+  GitGraph,
+  Layers,
+  CheckCircle,
+  XCircle,
+  Trash2,
+  Search,
+  Send,
+  Cpu,
+  Shield,
+  Zap,
+  Code,
+  Terminal,
+  ArrowRight
+} from 'lucide-react';
 
 const API_URL = 'http://localhost:3000';
+
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  securityLevel: 'loose',
+  flowchart: {
+    curve: 'basis',
+    htmlLabels: true,
+    useMaxWidth: false
+  },
+  themeVariables: {
+    primaryColor: '#000000',
+    primaryTextColor: '#ededed',
+    primaryBorderColor: '#27272a',
+    lineColor: '#ededed',
+    secondaryColor: '#0a0a0a',
+    tertiaryColor: '#171717',
+    fontSize: '14px',
+    fontFamily: 'Inter',
+    nodeBorder: '#27272a',
+    mainBkg: '#0a0a0a',
+    textColor: '#ededed',
+  }
+});
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [status, setStatus] = useState({ ready: false, index: null });
   const [loading, setLoading] = useState(true);
-  const [queries, setQueries] = useState([]);
   const [mentorMode, setMentorMode] = useState(false);
 
   useEffect(() => {
@@ -20,11 +61,13 @@ function App() {
   const fetchStatus = async () => {
     try {
       const res = await fetch(`${API_URL}/health`);
+      if (!res.ok) throw new Error('Backend responded with error');
       const data = await res.json();
       setStatus({ ready: true, ...data });
       setLoading(false);
     } catch (e) {
-      setStatus({ ready: false, index: null });
+      console.error('Status fetch failed:', e);
+      setStatus({ ready: false, index: null, error: e.message });
       setLoading(false);
     }
   };
@@ -37,7 +80,7 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo">
-            <img src="/icon.png" alt="CodeSensei" className="logo-icon" />
+            <Cpu size={24} />
             <span>CodeSensei</span>
           </div>
         </div>
@@ -46,16 +89,19 @@ function App() {
           <div className="nav-section">
             <div className="nav-section-title">Main</div>
             <NavItem
+              icon={<Activity size={18} />}
               label="Overview"
               active={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
             />
             <NavItem
-              label="RAG Playground"
+              icon={<MessageSquare size={18} />}
+              label="RAG Chat"
               active={activeTab === 'rag'}
               onClick={() => setActiveTab('rag')}
             />
             <NavItem
+              icon={<GitGraph size={18} />}
               label="Code DNA"
               active={activeTab === 'codedna'}
               onClick={() => setActiveTab('codedna')}
@@ -63,46 +109,33 @@ function App() {
           </div>
 
           <div className="nav-section">
-            <div className="nav-section-title">Tools</div>
+            <div className="nav-section-title">Analysis</div>
             <NavItem
+              icon={<Layers size={18} />}
               label="Architecture"
               active={activeTab === 'architecture'}
               onClick={() => setActiveTab('architecture')}
-            />
-            <NavItem
-              label="Settings"
-              active={activeTab === 'settings'}
-              onClick={() => setActiveTab('settings')}
             />
           </div>
         </nav>
 
         <div className="sidebar-footer">
-          {/* Privacy Badge */}
-          <div className="privacy-badge">
-            <span className="privacy-icon">🔒</span>
-            <div className="privacy-text">
-              <strong>Private & Secure</strong>
-              <span>Your code stays in YOUR GCP project</span>
-            </div>
-          </div>
-
           <div className="status-card">
             <div className="status-row">
               <span className="status-label">Backend</span>
               <span className="status-value">
-                <span className={`status-dot ${status.ready ? 'online' : 'offline'}`}></span>
-                {status.ready ? 'Connected' : 'Offline'}
+                {status.ready ? <CheckCircle size={14} className="text-success" /> : <XCircle size={14} className="text-error" />}
+                <span style={{ marginLeft: '8px' }}>{status.ready ? 'Online' : 'Offline'}</span>
               </span>
             </div>
             <div className="status-row">
               <span className="status-label">Vertex AI</span>
               <span className="status-value">
-                <span className={`status-dot ${status.vertexAI === 'connected' ? 'online' : 'offline'}`}></span>
-                {status.vertexAI === 'connected' ? 'Ready' : 'Not configured'}
+                {status.vertexAI === 'connected' ? <CheckCircle size={14} className="text-success" /> : <XCircle size={14} className="text-error" />}
+                <span style={{ marginLeft: '8px' }}>{status.vertexAI === 'connected' ? 'Ready' : 'Off'}</span>
               </span>
             </div>
-            <div className="status-row">
+            <div className="status-row" style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
               <span className="status-label">Mentor Mode</span>
               <label className="toggle">
                 <input
@@ -119,6 +152,13 @@ function App() {
 
       {/* Main Content */}
       <main className="main">
+        {!status.ready && !loading && (
+          <div className="card" style={{ borderLeft: '4px solid var(--text-primary)', background: 'var(--bg-secondary)' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><XCircle size={20} /> Backend Disconnected</h3>
+            <p style={{ margin: '8px 0 0 0', opacity: 0.7 }}>Ensure the server is running on port 3000.</p>
+          </div>
+        )}
+
         {activeTab === 'overview' && (
           <OverviewPage stats={stats} status={status} loading={loading} mentorMode={mentorMode} />
         )}
@@ -131,9 +171,6 @@ function App() {
         {activeTab === 'architecture' && (
           <ArchitecturePage />
         )}
-        {activeTab === 'settings' && (
-          <SettingsPage />
-        )}
       </main>
     </div>
   );
@@ -142,7 +179,7 @@ function App() {
 function NavItem({ icon, label, active, onClick }) {
   return (
     <div className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}>
-      <span>{icon}</span>
+      <span className="nav-icon">{icon}</span>
       <span>{label}</span>
     </div>
   );
@@ -153,7 +190,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <span>Connecting to backend...</span>
+        <span>Connecting...</span>
       </div>
     );
   }
@@ -161,24 +198,8 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">Monitor your CodeSensei instance and indexed projects</p>
-      </div>
-
-      {/* Privacy Hero Banner */}
-      <div className="privacy-hero">
-        <div className="privacy-hero-content">
-          <div className="privacy-hero-icon">🛡️</div>
-          <div>
-            <h3>Enterprise-Grade Privacy</h3>
-            <p>Unlike other AI tools, your code NEVER leaves your Google Cloud project. Full data sovereignty.</p>
-          </div>
-        </div>
-        <div className="privacy-badges">
-          <span className="badge badge-green">SOC 2 Ready</span>
-          <span className="badge badge-blue">Your GCP</span>
-          <span className="badge badge-purple">Zero Data Sharing</span>
-        </div>
+        <h1 className="page-title">Overview</h1>
+        <p className="page-subtitle">System status and project metrics.</p>
       </div>
 
       <div className="stats-grid">
@@ -195,40 +216,50 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
           label="Languages"
         />
         <StatCard
-          value={mentorMode ? 'Mentor' : 'Speed'}
-          label="AI Mode"
+          value={mentorMode ? 'Active' : 'Diff'}
+          label="Mentor Mode"
         />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         <div className="card feature-card">
-          <div className="feature-icon">→</div>
-          <h3>RAG-Powered Context</h3>
-          <p>Unlike Copilot, CodeSensei retrieves relevant code from YOUR entire project before answering. See exactly which files influenced each response.</p>
-          <a href="#" className="feature-link" onClick={(e) => { e.preventDefault(); }}>Try RAG Playground →</a>
+          <div className="feature-header">
+            <Search size={24} />
+            <h3>RAG Context</h3>
+          </div>
+          <p>Retrieve relevant code from your project before answering. See exactly which files influenced each response.</p>
         </div>
 
         <div className="card feature-card">
-          <div className="feature-icon">◊</div>
-          <h3>Code DNA Visualization</h3>
-          <p>Explore your codebase like never before. Interactive knowledge graph showing file relationships, dependencies, and architecture.</p>
-          <a href="#" className="feature-link" onClick={(e) => { e.preventDefault(); }}>View Code DNA →</a>
+          <div className="feature-header">
+            <GitGraph size={24} />
+            <h3>Knowledge Graph</h3>
+          </div>
+          <p>Interactive visualization of your codebase. Explore file relationships, dependencies, and architecture.</p>
         </div>
 
         <div className="card feature-card">
-          <div className="feature-icon">◆</div>
-          <h3>Mentor Mode</h3>
-          <p>Toggle Mentor Mode for educational, Socratic responses. Learn WHY code works, not just how. Perfect for onboarding and learning.</p>
-          <span className={`mode-indicator ${mentorMode ? 'active' : ''}`}>
-            {mentorMode ? '✓ Active' : 'Inactive'}
-          </span>
+          <div className="feature-header">
+            <Code size={24} />
+            <h3>Source Citations</h3>
+          </div>
+          <p>Every AI response includes clickable source citations. Jump directly to the exact file and line.</p>
         </div>
+      </div>
 
-        <div className="card feature-card">
-          <div className="feature-icon">◀</div>
-          <h3>Jump to Source</h3>
-          <p>Every AI response includes clickable source citations. Jump directly to the exact file and line in VS Code.</p>
-          <span className="badge badge-new">New</span>
+      {/* Privacy Hero Banner Moved to Bottom */}
+      <div className="privacy-hero" style={{ marginTop: '24px' }}>
+        <div className="privacy-hero-content">
+          <div className="privacy-hero-icon"><Shield size={32} /></div>
+          <div>
+            <h3>Enterprise-Grade Privacy</h3>
+            <p>Your code NEVER leaves your Google Cloud project. Full data sovereignty.</p>
+          </div>
+        </div>
+        <div className="privacy-badges">
+          <span className="badge">SOC 2 Ready</span>
+          <span className="badge">Your GCP</span>
+          <span className="badge">Zero Sharing</span>
         </div>
       </div>
     </>
@@ -244,20 +275,16 @@ function StatCard({ value, label }) {
   );
 }
 
-
-
-
 function RAGPlaygroundPage({ mentorMode }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [retrievalSteps, setRetrievalSteps] = useState([]);
-  const [currentStep, setCurrentStep] = useState(-1);
   const [recentChats, setRecentChats] = useState([]);
   const [chatId, setChatId] = useState(Date.now());
+  const [confirmClear, setConfirmClear] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // Auto-scroll to bottom of chat
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -266,7 +293,6 @@ function RAGPlaygroundPage({ mentorMode }) {
     scrollToBottom();
   }, [messages, retrievalSteps]);
 
-  // Load recent chats
   useEffect(() => {
     const saved = localStorage.getItem('codesensei_chats');
     if (saved) {
@@ -289,7 +315,7 @@ function RAGPlaygroundPage({ mentorMode }) {
       query: lastUserMsg,
       preview: lastAiMsg.substring(0, 60) + '...',
       timestamp: new Date().toISOString(),
-      messages: newMessages, // Save full transcript
+      messages: newMessages,
       mentorMode
     };
 
@@ -301,19 +327,17 @@ function RAGPlaygroundPage({ mentorMode }) {
 
   const loadPastChat = (chat) => {
     setChatId(chat.id);
-    setMessages(chat.messages || []); // Support legacy format fallback
+    setMessages(chat.messages || []);
     if (!chat.messages) {
-      // Legacy fallback: if old format, just show the query
       setMessages([{ role: 'user', content: chat.query, timestamp: chat.timestamp }]);
     }
   };
 
   const clearHistory = () => {
-    if (confirm('Clear all chat history?')) {
-      setRecentChats([]);
-      localStorage.removeItem('codesensei_chats');
-      startNewChat();
-    }
+    setRecentChats([]);
+    localStorage.removeItem('codesensei_chats');
+    startNewChat();
+    setConfirmClear(false);
   };
 
   const startNewChat = () => {
@@ -333,19 +357,19 @@ function RAGPlaygroundPage({ mentorMode }) {
     setLoading(true);
     setRetrievalSteps([]);
 
-    // Simulate RAG steps for UI
+    // Visual feedback steps
     const steps = [
-      { label: 'Analyzing Intent...', icon: '🧠' },
-      { label: 'Searching Codebase...', icon: '🔍' },
-      { label: 'Reading Context...', icon: '📖' },
-      { label: 'Generating Answer...', icon: '✨' },
+      { label: 'Analyzing Intent', icon: <Search size={14} /> },
+      { label: 'Scanning Codebase', icon: <Terminal size={14} /> },
+      { label: 'Reading Context', icon: <Code size={14} /> },
+      { label: 'Synthesizing Response', icon: <Zap size={14} /> },
     ];
 
     try {
-      // Fake progress for visual feedback
+      // Parallel simulated steps for UI while waiting
       for (let i = 0; i < steps.length; i++) {
         setRetrievalSteps(prev => [...prev, { ...steps[i], status: 'active' }]);
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 400));
         setRetrievalSteps(prev => {
           const copy = [...prev];
           copy[i].status = 'complete';
@@ -358,11 +382,15 @@ function RAGPlaygroundPage({ mentorMode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userMsg.content,
-          // Send last 4 messages as conversational context
           context: newHistory.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n'),
           mentorMode
         })
       });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || 'Server error');
+      }
 
       const data = await res.json();
 
@@ -377,16 +405,18 @@ function RAGPlaygroundPage({ mentorMode }) {
       const finalMessages = [...newHistory, aiMsg];
       setMessages(finalMessages);
       saveToHistory(finalMessages);
-      setRetrievalSteps([]); // Clear steps after done
-
     } catch (e) {
+      console.error('Chat error:', e);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Error: ${e.message}. Please check if the backend is running.`,
-        isError: true
+        content: `Error: ${e.message}`,
+        isError: true,
+        timestamp: new Date().toISOString()
       }]);
+    } finally {
+      setLoading(false);
+      setRetrievalSteps([]);
     }
-    setLoading(false);
   };
 
   const handleKeyDown = (e) => {
@@ -398,52 +428,46 @@ function RAGPlaygroundPage({ mentorMode }) {
 
   return (
     <>
-      <div className="page-header" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h1 className="page-title">RAG Chat</h1>
-            <p className="page-subtitle">
-              {mentorMode ? 'Mentor Mode Active 🎓' : 'Ask questions about your codebase'}
-            </p>
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={startNewChat}>
-            + New Chat
-          </button>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1 className="page-title">Chat</h1>
+          <p className="page-subtitle">
+            {mentorMode ? 'Mentor Mode Active' : 'Ask questions about your codebase'}
+          </p>
         </div>
+        <button className="btn btn-secondary btn-sm" onClick={startNewChat}>
+          + New Chat
+        </button>
       </div>
 
       <div className="rag-layout">
-        {/* Chat Area */}
+        {/* Chat Container */}
         <div className="chat-container">
           <div className="chat-messages">
             {messages.length === 0 && (
-              <div style={{ textAlign: 'center', marginTop: '100px', opacity: 0.6 }}>
-                <h2>👋 Hi there!</h2>
-                <p>I've indexed your codebase. Ask me anything!</p>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setInput('Explain the project structure')}>Explain Project</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setInput('Find any bugs in server.js')}>Find Bugs</button>
-                </div>
+              <div className="empty-state">
+                <div className="empty-icon"><MessageSquare size={48} /></div>
+                <h3>CodeSensei Ready</h3>
+                <p>Context-aware AI assistant for your project.</p>
               </div>
             )}
 
             {messages.map((msg, i) => (
               <div key={i} className={`message ${msg.role}`}>
                 <div className="message-avatar">
-                  {msg.role === 'user' ? '👤' : '🤖'}
+                  {msg.role === 'user' ? <Activity size={18} /> : <Cpu size={18} />}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                <div className="message-bubble">
                   <div className="message-content">
                     {msg.content}
                   </div>
 
-                  {/* Sources (only for assistant) */}
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="sources-grid">
                       {msg.sources.map((src, idx) => (
                         <div key={idx} className="mini-source-card" onClick={() => window.open(`vscode://file/${src.path}:${src.startLine}`)}>
                           <div className="mini-source-path">{src.path}</div>
-                          <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>Lines {src.lines}</div>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Lines {src.lines}</div>
                         </div>
                       ))}
                     </div>
@@ -451,13 +475,11 @@ function RAGPlaygroundPage({ mentorMode }) {
 
                   <div className="message-meta">
                     {new Date(msg.timestamp || Date.now()).toLocaleTimeString()}
-                    {msg.metadata && <span> • {msg.metadata.timeMs}ms</span>}
                   </div>
                 </div>
               </div>
             ))}
 
-            {/* Visualizing Retrieval Process in Chat */}
             {loading && retrievalSteps.length > 0 && (
               <div className="retrieval-indicator">
                 <div className="step-spinner"></div>
@@ -468,12 +490,11 @@ function RAGPlaygroundPage({ mentorMode }) {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Area */}
           <div className="chat-input-area">
             <div className="chat-input-wrapper">
               <textarea
                 className="chat-input"
-                placeholder="Type your question here... (Enter to send)"
+                placeholder="Ask about your code..."
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -483,7 +504,7 @@ function RAGPlaygroundPage({ mentorMode }) {
                 onClick={handleSend}
                 disabled={loading || !input.trim()}
               >
-                ➤
+                <ArrowRight size={20} />
               </button>
             </div>
           </div>
@@ -492,9 +513,18 @@ function RAGPlaygroundPage({ mentorMode }) {
         {/* History Sidebar */}
         <aside className="rag-history-sidebar">
           <div className="history-header">
-            <h3>Recent Chats</h3>
-            {recentChats.length > 0 && (
-              <button className="btn-text" onClick={clearHistory}>Clear</button>
+            <h3>Recent</h3>
+            {recentChats.length > 0 && !confirmClear && (
+              <button className="btn-icon" onClick={() => setConfirmClear(true)}>
+                <Trash2 size={16} />
+              </button>
+            )}
+            {confirmClear && (
+              <div className="confirm-actions">
+                <span>Sure?</span>
+                <button className="confirm-btn yes" onClick={clearHistory}>Yes</button>
+                <button className="confirm-btn no" onClick={() => setConfirmClear(false)}>No</button>
+              </div>
             )}
           </div>
           <div className="history-list">
@@ -505,15 +535,11 @@ function RAGPlaygroundPage({ mentorMode }) {
                 onClick={() => loadPastChat(chat)}
               >
                 <div className="history-query">{chat.query}</div>
-                <div className="history-preview">{chat.preview}</div>
                 <div className="history-meta">
                   <span>{new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               </div>
             ))}
-            {recentChats.length === 0 && (
-              <div className="history-empty">No history</div>
-            )}
           </div>
         </aside>
       </div>
@@ -560,8 +586,9 @@ function CodeDNAPage() {
             <h1 className="page-title">Code DNA</h1>
             <p className="page-subtitle">Interactive knowledge graph of your codebase</p>
           </div>
-          <button className="btn btn-secondary" onClick={loadGraph} disabled={loading}>
-            {loading ? 'Rescanning...' : '🔄 Refresh Graph'}
+          <button className="btn btn-secondary" onClick={loadGraph} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={16} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Rescanning...' : 'Refresh Graph'}
           </button>
         </div>
       </div>
@@ -676,17 +703,59 @@ function CodeDNAPage() {
   );
 }
 
+
+// Initialize mermaid logic moved to top of file for theme consistency
+
+import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+
+function Mermaid({ chart }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (chart && ref.current) {
+      ref.current.removeAttribute('data-processed');
+      mermaid.contentLoaded();
+    }
+  }, [chart]);
+
+  return (
+    <div className="mermaid-wrapper">
+      <TransformWrapper
+        initialScale={1}
+        initialPositionX={0}
+        initialPositionY={0}
+        centerOnInit={true}
+      >
+        <TransformComponent
+          wrapperStyle={{ width: "100%", height: "100%" }}
+          contentStyle={{ width: "100%", height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}
+        >
+          <div ref={ref} className="mermaid" style={{ cursor: 'grab' }}>
+            {chart}
+          </div>
+        </TransformComponent>
+      </TransformWrapper>
+    </div>
+  );
+}
+
 function ArchitecturePage() {
   const [diagram, setDiagram] = useState('');
   const [loading, setLoading] = useState(false);
 
   const generateDiagram = async () => {
     setLoading(true);
+    setDiagram(''); // Clear old diagram
     try {
-      const res = await fetch(`${API_URL}/api/architecture`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/architecture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
       const data = await res.json();
-      setDiagram(data.diagram || 'No diagram generated');
+
+      setDiagram((data.diagram || '').trim());
     } catch (e) {
+      console.error('Failed to generate diagram:', e);
       setDiagram('Error: Could not connect to backend');
     }
     setLoading(false);
@@ -696,30 +765,47 @@ function ArchitecturePage() {
     <>
       <div className="page-header">
         <h1 className="page-title">Architecture</h1>
-        <p className="page-subtitle">Visualize your project structure</p>
+        <p className="page-subtitle">Automatic system design visualization powered by Gemini</p>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">
-            Project Architecture
+      <div className="card architecture-card">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <h3 className="card-title" style={{ margin: 0 }}>
+            System Architecture
           </h3>
-          <button className="btn btn-primary" onClick={generateDiagram} disabled={loading}>
-            {loading ? 'Generating...' : 'Generate Diagram'}
+          <button
+            className={`btn ${loading ? 'btn-secondary' : 'btn-primary'}`}
+            onClick={generateDiagram}
+            disabled={loading}
+          >
+            {loading ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="spinner-sm"></div> Analyzing Codebase...
+              </span>
+            ) : 'Generate Diagram'}
           </button>
         </div>
 
-        {diagram ? (
-          <div className="diagram-container">
-            <pre style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{diagram}</pre>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <div>■</div>
-            <h3>No Diagram Yet</h3>
-            <p>Click "Generate Diagram" to create an architecture visualization of your indexed project.</p>
-          </div>
-        )}
+        <div className="architecture-viewport">
+          {diagram && !loading ? (
+            <Mermaid chart={diagram} />
+          ) : (
+            <div className={`architecture-empty ${loading ? 'loading' : ''}`}>
+              {loading ? (
+                <div className="analysis-indicator">
+                  <div className="pulse-circle"></div>
+                  <p>Gemini is mapping dependencies and grouping components...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="empty-icon"><Layers size={48} /></div>
+                  <h3>Ready to Map Architecture</h3>
+                  <p>Analyze your indexed files and generate a living architectural diagram.</p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

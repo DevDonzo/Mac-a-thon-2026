@@ -7,6 +7,9 @@ const { initializeVertexAI, isReady } = require('./vertexai');
 const { askWithRAG, askDirect, analyzeCode, suggestRefactor, generateTests, generateArchitecture } = require('./ai');
 const vectorStore = require('./vectorStore');
 const logger = require('./logger');
+const chokidar = require('chokidar');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 
@@ -352,7 +355,7 @@ function start() {
 
     const PORT = config.server.port;
 
-    app.listen(PORT, () => {
+    app.listen(PORT, async () => {
         console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
@@ -374,6 +377,43 @@ function start() {
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
+
+        // Startup Auto-Indexing
+        if (config.project.autoIndex) {
+            const stats = vectorStore.getStats();
+            if (stats.totalChunks === 0) {
+                console.log('🚀 No cache found. Starting background auto-index...');
+                vectorStore.indexLocalDirectory();
+            } else {
+                console.log(`📦 Loaded ${stats.totalChunks} chunks from Edge Cache (indexed at ${stats.indexedAt})`);
+            }
+
+            // Setup File Watcher for Real-time RAG
+            const rootPath = path.resolve(__dirname, config.project.root);
+            const watcher = chokidar.watch(rootPath, {
+                ignored: [/(^|[\/\\])\../, ...config.project.ignorePaths.map(p => `**/${p}/**`)],
+                persistent: true,
+                ignoreInitial: true
+            });
+
+            watcher.on('change', async (filePath) => {
+                const relativePath = path.relative(rootPath, filePath);
+                console.log(`📝 File changed: ${relativePath}. Re-indexing...`);
+
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    // We don't have a specific update method yet, so we'll just re-index the whole thing for now
+                    // In a production app, we'd only update the specific file's chunks
+                    // For the hackathon, a full index of small-med projects is fine
+                    await vectorStore.indexLocalDirectory();
+                    console.log(`✅ ${relativePath} re-indexed successfully`);
+                } catch (e) {
+                    logger.error('Failed to update file in vector store', { error: e.message });
+                }
+            });
+
+            console.log(`👀 Watching for code changes in: ${rootPath}`);
+        }
     });
 }
 
