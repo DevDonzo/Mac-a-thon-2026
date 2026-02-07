@@ -19,6 +19,9 @@
   "author": "Mac-a-thon 2026",
   "license": "MIT",
   "dependencies": {
+    "@babel/parser": "^7.29.0",
+    "@babel/traverse": "^7.29.0",
+    "@babel/types": "^7.29.0",
     "@google-cloud/vertexai": "^1.9.0",
     "axios": "^1.13.4",
     "chokidar": "^5.0.0",

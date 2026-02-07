@@ -1,6 +1,7 @@
 const { config } = require('./config');
 const { generateEmbeddings, cosineSimilarity, createSimpleEmbedding } = require('./vertexai');
 const logger = require('./logger');
+const astParser = require('./astParser');
 const fs = require('fs');
 const path = require('path');
 const glob = require('glob');
@@ -261,9 +262,33 @@ class VectorStore {
     }
 
     /**
-     * Split file content into meaningful chunks
+     * Split file content into meaningful chunks using AST-based parsing
      */
     splitIntoChunks(filePath, content) {
+        const language = this.detectLanguage(filePath);
+        
+        // Try AST-based chunking first for JavaScript/TypeScript
+        const astChunks = astParser.createSymbolBasedChunks(filePath, content, language);
+        
+        if (astChunks && astChunks.length > 0) {
+            logger.info(`AST-based chunking: ${astChunks.length} chunks for ${filePath}`);
+            return astChunks.map(chunk => ({
+                ...chunk,
+                text: this.formatChunkText(filePath, chunk.startLine, chunk.endLine, chunk.text),
+                language,
+                symbol: chunk.symbol // Include symbol metadata
+            }));
+        }
+
+        // Fallback to character-based chunking
+        logger.info(`Character-based chunking: ${filePath}`);
+        return this.characterBasedChunking(filePath, content, language);
+    }
+
+    /**
+     * Fallback: Character-based chunking (old method)
+     */
+    characterBasedChunking(filePath, content, language) {
         const chunks = [];
         const lines = content.split('\n');
         const { chunkSize, chunkOverlap } = config.rag;
@@ -290,7 +315,7 @@ class VectorStore {
                         startLine,
                         endLine: i,
                         text: this.formatChunkText(filePath, startLine, i, chunkContent),
-                        language: this.detectLanguage(filePath)
+                        language
                     });
                 }
 
@@ -314,7 +339,7 @@ class VectorStore {
                     startLine,
                     endLine: lines.length,
                     text: this.formatChunkText(filePath, startLine, lines.length, chunkContent),
-                    language: this.detectLanguage(filePath)
+                    language
                 });
             }
         }
@@ -433,8 +458,9 @@ class VectorStore {
     getDependencyGraph() {
         const chunks = this.chunks;
         const fileMap = new Map();
+        const symbolMap = new Map(); // NEW: Track symbols
 
-        // 1. Build nodes from chunks
+        // 1. Build file nodes and symbol nodes from chunks
         for (const chunk of chunks) {
             if (!fileMap.has(chunk.path)) {
                 fileMap.set(chunk.path, {
@@ -446,12 +472,26 @@ class VectorStore {
                     lines: 0,
                     imports: new Set(),
                     exports: new Set(),
+                    symbols: [], // NEW: List of symbols in this file
                     connections: 0
                 });
             }
             const file = fileMap.get(chunk.path);
             file.chunks++;
             file.lines = Math.max(file.lines, chunk.endLine || 0);
+
+            // NEW: If chunk has symbol metadata, add to symbol map
+            if (chunk.symbol) {
+                const symbolId = `${chunk.path}::${chunk.symbol.name}`;
+                symbolMap.set(symbolId, {
+                    id: symbolId,
+                    type: chunk.symbol.type,
+                    name: chunk.symbol.name,
+                    file: chunk.path,
+                    line: chunk.startLine
+                });
+                file.symbols.push(chunk.symbol);
+            }
 
             // Extract imports/exports from chunk text
             const importMatches = chunk.text.match(/(?:import|require)\s*\(?['"]([^'"]+)['"]/g) || [];
@@ -478,7 +518,8 @@ class VectorStore {
             nodes.push({
                 ...file,
                 imports: Array.from(file.imports),
-                exports: Array.from(file.exports)
+                exports: Array.from(file.exports),
+                symbolCount: file.symbols.length
             });
 
             // Create edges for imports
@@ -520,10 +561,22 @@ class VectorStore {
 
         // 3. Calculate importance scores
         nodes.forEach(node => {
-            node.importance = node.connections + (node.exports.length * 2) + (node.chunks * 0.5);
+            node.importance = node.connections + (node.exports.length * 2) + (node.chunks * 0.5) + (node.symbolCount * 0.3);
         });
 
-        return { nodes, edges };
+        // 4. Add symbol nodes for richer visualization
+        const symbolNodes = Array.from(symbolMap.values());
+
+        return { 
+            nodes, 
+            edges, 
+            symbols: symbolNodes, // NEW: Include symbol-level nodes
+            stats: {
+                totalFiles: nodes.length,
+                totalSymbols: symbolNodes.length,
+                totalEdges: edges.length
+            }
+        };
     }
 }
 

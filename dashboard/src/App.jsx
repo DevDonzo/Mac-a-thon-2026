@@ -170,8 +170,16 @@ function App() {
           padding: '12px 24px',
           background: status.indexing?.isIndexing 
             ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)'
-            : 'rgba(255, 255, 255, 0.03)',
-          border: `1px solid ${status.indexing?.isIndexing ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.1)'}`,
+            : (status.workspace || stats.filesIndexed > 0) 
+              ? 'rgba(255, 255, 255, 0.03)'
+              : 'rgba(245, 158, 11, 0.1)',
+          border: `1px solid ${
+            status.indexing?.isIndexing 
+              ? 'rgba(59, 130, 246, 0.2)' 
+              : (status.workspace || stats.filesIndexed > 0)
+                ? 'rgba(255, 255, 255, 0.1)'
+                : 'rgba(245, 158, 11, 0.3)'
+          }`,
           borderRadius: '8px',
           marginBottom: '24px',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
@@ -179,7 +187,7 @@ function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {status.indexing?.isIndexing ? (
               <div className="spinner-sm" style={{ borderTopColor: '#3b82f6' }}></div>
-            ) : status.workspace ? (
+            ) : (status.workspace || stats.filesIndexed > 0) ? (
               <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
             ) : (
               <AlertCircle size={18} style={{ color: '#f59e0b', flexShrink: 0 }} />
@@ -193,7 +201,11 @@ function App() {
                 marginBottom: '4px',
                 fontWeight: 600
               }}>
-                {status.indexing?.isIndexing ? 'Indexing' : status.workspace ? 'Indexed Workspace' : 'No Workspace'}
+                {status.indexing?.isIndexing 
+                  ? 'Indexing' 
+                  : (status.workspace || stats.filesIndexed > 0)
+                    ? 'Indexed Workspace' 
+                    : 'No Workspace'}
               </div>
               <div style={{ 
                 fontSize: '0.9rem', 
@@ -215,6 +227,10 @@ function App() {
                       </>
                     )}
                   </>
+                ) : stats.filesIndexed > 0 ? (
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {stats.projectId || 'Project'} ({stats.filesIndexed} files indexed)
+                  </span>
                 ) : (
                   <span style={{ color: 'var(--text-secondary)' }}>
                     Open a workspace in VS Code and wait for auto-indexing
