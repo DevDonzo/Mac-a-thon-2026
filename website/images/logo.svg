@@ -1,0 +1,21 @@
+<svg width="40" height="40" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="80" y="80" width="240" height="240" rx="24" stroke="#f5f5f5" stroke-width="20" fill="none"/>
+  <rect x="140" y="140" width="120" height="120" rx="12" stroke="#f5f5f5" stroke-width="16" fill="none"/>
+  <rect x="175" y="175" width="50" height="50" rx="6" fill="#f5f5f5"/>
+  <!-- Top pins -->
+  <circle cx="120" cy="55" r="18" fill="#f5f5f5"/>
+  <circle cx="200" cy="55" r="18" fill="#f5f5f5"/>
+  <circle cx="280" cy="55" r="18" fill="#f5f5f5"/>
+  <!-- Bottom pins -->
+  <circle cx="120" cy="345" r="18" fill="#f5f5f5"/>
+  <circle cx="200" cy="345" r="18" fill="#f5f5f5"/>
+  <circle cx="280" cy="345" r="18" fill="#f5f5f5"/>
+  <!-- Left pins -->
+  <circle cx="55" cy="120" r="18" fill="#f5f5f5"/>
+  <circle cx="55" cy="200" r="18" fill="#f5f5f5"/>
+  <circle cx="55" cy="280" r="18" fill="#f5f5f5"/>
+  <!-- Right pins -->
+  <circle cx="345" cy="120" r="18" fill="#f5f5f5"/>
+  <circle cx="345" cy="200" r="18" fill="#f5f5f5"/>
+  <circle cx="345" cy="280" r="18" fill="#f5f5f5"/>
+</svg>
