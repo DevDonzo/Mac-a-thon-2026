@@ -2,7 +2,7 @@
 
 ### An Auditable Code Reasoning Engine for Whole-Repo Intelligence
 
-[![Powered by Vertex AI](https://img.shields.io/badge/Vertex%20AI-Embeddings%20%2B%20Gemini-4285F4)](https://cloud.google.com/vertex-ai)
+[![Powered by Vertex AI](https://img.shields.io/badge/Vertex%20AI-Embeddings%20%2B%20Gemini%202.0-4285F4)](https://cloud.google.com/vertex-ai)
 [![Memory by Backboard](https://img.shields.io/badge/Memory-Backboard.io-lightgrey)](https://backboard.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -338,7 +338,7 @@ BACKBOARD_API_KEY=your-backboard-api-key
 BACKBOARD_ASSISTANT_ID=your-assistant-id
 
 # Optional
-GCP_LOCATION=northamerica-northeast1
+GCP_LOCATION=northamerica-northeast2
 PORT=3000
 LOG_LEVEL=info
 ```
