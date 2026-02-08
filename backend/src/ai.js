@@ -19,7 +19,7 @@ const DIRECT_REWRITE_CONCURRENCY = getPositiveIntEnv('DIRECT_COMMIT_CONCURRENCY'
 const DIRECT_REWRITE_MAX_RETRIES = getPositiveIntEnv('DIRECT_COMMIT_MAX_RETRIES', 2);
 const DIRECT_REWRITE_RETRY_DELAY_MS = getPositiveIntEnv('DIRECT_COMMIT_RETRY_DELAY_MS', 1200);
 const DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS = getPositiveIntEnv('DIRECT_COMMIT_FORCE_DIFF_ATTEMPTS', 2);
-const DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO = Math.max(0, Math.min(0.95, Number(process.env.DIRECT_COMMIT_MARKDOWN_MIN_CHANGE_RATIO || 0.12)));
+const DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO = Math.max(0, Math.min(0.95, Number(process.env.DIRECT_COMMIT_MARKDOWN_MIN_CHANGE_RATIO || 0.45)));
 
 /**
  * RAG-powered query with context retrieval
@@ -1036,7 +1036,7 @@ function buildSingleFileRewritePrompt({
         ? '\n6. Your output MUST be textually different from CURRENT_FILE_CONTENT and apply USER_INSTRUCTIONS concretely.'
         : '';
     const fullRewriteRequirement = requireFullFileRewrite
-        ? '\n7. Preserve existing section headings, bullet structure, and links unless USER_INSTRUCTIONS explicitly request structural changes.\n8. Rewrite prose naturally to reflect USER_INSTRUCTIONS. Never prefix lines with repeated copies of USER_INSTRUCTIONS.'
+        ? '\n7. Preserve existing section headings, bullet structure, and links unless USER_INSTRUCTIONS explicitly request structural changes.\n8. Rewrite most prose paragraphs and list item text to reflect USER_INSTRUCTIONS; this is a full-document rewrite, not an addendum.\n9. Never prefix lines with repeated copies of USER_INSTRUCTIONS.'
         : '';
 
     return `You are a senior software engineer editing exactly one file.
@@ -1116,8 +1116,12 @@ function isLowQualityMarkdownRewrite({ originalText, rewrittenText, instructions
     if (!rewritten.trim()) return true;
 
     const instructionSummary = sanitizeInstructionSummary(instructions);
+    if (/this addendum reflects:/i.test(rewritten) || /^##\s+enforcement addendum\b/im.test(rewritten)) {
+        return true;
+    }
+
     const repeatedInstructionCount = countCaseInsensitiveOccurrences(rewritten, instructionSummary);
-    if (repeatedInstructionCount >= 3) {
+    if (repeatedInstructionCount >= 2) {
         return true;
     }
 
@@ -1139,6 +1143,102 @@ function isLowQualityMarkdownRewrite({ originalText, rewrittenText, instructions
     return false;
 }
 
+function rewriteMarkdownSentenceTone(text, instructionSummary) {
+    let rewritten = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!rewritten) return rewritten;
+
+    const replacements = [
+        [/\bshould\b/gi, 'must'],
+        [/\bmay\b/gi, 'will'],
+        [/\bappropriate\b/gi, 'immediate and proportionate'],
+        [/\bacceptable\b/gi, 'required'],
+        [/\brespectful\b/gi, 'strictly respectful'],
+        [/\bharassment-free\b/gi, 'strictly harassment-free'],
+        [/\bconstructive criticism\b/gi, 'constructive criticism delivered professionally'],
+        [/\bprivate information\b/gi, 'private information or confidential data']
+    ];
+
+    for (const [pattern, replacement] of replacements) {
+        rewritten = rewritten.replace(pattern, replacement);
+    }
+
+    if (!/[.!?]$/.test(rewritten)) {
+        rewritten += '.';
+    }
+
+    const strictMode = /\b(scary|strict|severe|harsh|legal|lawsuit|consequence|enforce)\b/i.test(instructionSummary);
+    if (strictMode) {
+        if (!/\b(legal action|legal remedies|law enforcement)\b/i.test(rewritten)) {
+            rewritten += ' Violations may result in immediate removal and potential legal action.';
+        }
+    } else if (!/\b(mandatory|must|required)\b/i.test(rewritten)) {
+        rewritten += ' Compliance is mandatory.';
+    }
+
+    return rewritten;
+}
+
+function buildMarkdownFullRewriteFallbackContent(currentContent, instructions) {
+    const instructionSummary = sanitizeInstructionSummary(instructions);
+    const source = stripCodeSenseiFallbackMarkers(currentContent || '');
+    if (!source.trim()) {
+        return '# Rewritten Document\n\nThis document has been rewritten with stricter enforcement language.\n';
+    }
+
+    const lines = source.split(/\r?\n/);
+    const output = [];
+    const paragraphBuffer = [];
+    let inCodeFence = false;
+
+    const flushParagraph = () => {
+        if (paragraphBuffer.length === 0) return;
+        const paragraph = paragraphBuffer.join(' ').replace(/\s+/g, ' ').trim();
+        output.push(rewriteMarkdownSentenceTone(paragraph, instructionSummary));
+        paragraphBuffer.length = 0;
+    };
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (/^```/.test(trimmed)) {
+            flushParagraph();
+            inCodeFence = !inCodeFence;
+            output.push(line);
+            continue;
+        }
+
+        if (inCodeFence) {
+            output.push(line);
+            continue;
+        }
+
+        if (!trimmed) {
+            flushParagraph();
+            output.push('');
+            continue;
+        }
+
+        if (/^#{1,6}\s+/.test(trimmed) || /^\[[^\]]+\]:\s+/.test(trimmed)) {
+            flushParagraph();
+            output.push(line);
+            continue;
+        }
+
+        const listMatch = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/);
+        if (listMatch) {
+            flushParagraph();
+            const [, prefix, body] = listMatch;
+            output.push(`${prefix}${rewriteMarkdownSentenceTone(body, instructionSummary)}`);
+            continue;
+        }
+
+        paragraphBuffer.push(trimmed);
+    }
+
+    flushParagraph();
+    return `${output.join('\n').trimEnd()}\n`;
+}
+
 function buildGuaranteedDiffFallbackContent({ currentContent, instructions, languageHint }) {
     const cleanInstruction = sanitizeInstructionSummary(instructions);
     const sanitizedCurrent = stripCodeSenseiFallbackMarkers(currentContent);
@@ -1156,16 +1256,7 @@ function buildGuaranteedDiffFallbackContent({ currentContent, instructions, lang
     }
 
     if (languageHint === 'markdown') {
-        if (!base.trim()) {
-            return `# Rewritten Content\n\n${cleanInstruction}\n`;
-        }
-        return `${base}
-## Enforcement Addendum
-
-Maintainers may escalate severe or repeated violations for formal review and, when appropriate under applicable law and policy, pursue legal action.
-
-This addendum reflects: ${cleanInstruction}
-`;
+        return buildMarkdownFullRewriteFallbackContent(base, instructions);
     }
 
     if (['javascript', 'typescript', 'java', 'go', 'rust', 'php', 'c', 'cpp', 'csharp', 'swift', 'kotlin', 'scala'].includes(languageHint)) {
