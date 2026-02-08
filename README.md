@@ -339,6 +339,7 @@ BACKBOARD_ASSISTANT_ID=your-assistant-id
 
 # Optional
 GCP_LOCATION=northamerica-northeast2
+GCP_EMBEDDING_LOCATION=northamerica-northeast2
 PORT=3000
 LOG_LEVEL=info
 ```
@@ -379,7 +380,7 @@ LOG_LEVEL=info
 
 **"Backend not running"**: Run `cd backend && npm start`.
 
-**"Vertex AI not configured" or "Model Not Found"**: Verify `GCP_PROJECT_ID` in `.env`, run `gcloud auth application-default login`, and ensure the Vertex AI API is enabled. Try `GCP_LOCATION=northamerica-northeast1` if the model is not found in your default region.
+**"Vertex AI not configured" or "Model Not Found"**: Verify `GCP_PROJECT_ID` in `.env`, run `gcloud auth application-default login`, and ensure the Vertex AI API is enabled. Try `GCP_LOCATION=northamerica-northeast2` if the model is not found in your default region. If embeddings return 404, set `GCP_EMBEDDING_LOCATION` to a supported region.
 
 **"No files indexed"**: Open a workspace folder (not a single file). Check the status bar or dashboard for indexing progress. Use "Re-Index Project" in the dashboard or `CodeSensei: Re-index Workspace` from the command palette.
 

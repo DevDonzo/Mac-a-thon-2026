@@ -64,7 +64,8 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
         const token = await client.getAccessToken();
         const accessToken = token.token;
 
-        const url = `https://${config.gcp.location}-aiplatform.googleapis.com/v1/projects/${config.gcp.projectId}/locations/${config.gcp.location}/publishers/google/models/${config.models.embedding}:predict`;
+        const embeddingLocation = config.gcp.embeddingLocation || config.gcp.location;
+        const url = `https://${embeddingLocation}-aiplatform.googleapis.com/v1/projects/${config.gcp.projectId}/locations/${embeddingLocation}/publishers/google/models/${config.models.embedding}:predict`;
 
         const embeddings = [];
         const batchSize = 20; // Increased from 5 to 20 for faster indexing

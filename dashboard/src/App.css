@@ -1685,6 +1685,19 @@ input:checked+.toggle-slider:before {
   line-height: 1.5;
 }
 
+.tutorial-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+
+.tutorial-checkbox input {
+  accent-color: var(--text-primary);
+}
+
 .architecture-plan-empty {
   margin: 12px 0 0;
   color: var(--text-secondary);

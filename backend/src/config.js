@@ -5,6 +5,7 @@ const config = {
     gcp: {
         projectId: process.env.GCP_PROJECT_ID,
         location: process.env.GCP_LOCATION || 'us-central1',
+        embeddingLocation: process.env.GCP_EMBEDDING_LOCATION || process.env.GCP_LOCATION || 'us-central1',
     },
     server: {
         port: parseInt(process.env.PORT) || 3000,

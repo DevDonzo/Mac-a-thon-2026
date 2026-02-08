@@ -1281,7 +1281,8 @@ function ArchitecturePage() {
   const [editorName, setEditorName] = useState('');
   const [editorInstructions, setEditorInstructions] = useState('');
   const [showTutorial, setShowTutorial] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(true);
+  const [skipTutorial, setSkipTutorial] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const graphStats = useMemo(() => {
     const actualNodes = nodes.filter((node) => node.data?.kind === 'actual').length;
@@ -1372,12 +1373,7 @@ function ArchitecturePage() {
     loadArchitectureGraph();
   }, [loadArchitectureGraph]);
 
-  useEffect(() => {
-    const hasSeen = window.localStorage.getItem('codesensei-architecture-tutorial') === 'seen';
-    if (!hasSeen) {
-      setShowTutorial(true);
-    }
-  }, []);
+  const hasSeenTutorial = () => window.localStorage.getItem('codesensei-architecture-tutorial') === 'seen';
 
   useEffect(() => {
     if (!editorOpen) return undefined;
@@ -1535,7 +1531,15 @@ function ArchitecturePage() {
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => setIsEditMode((current) => !current)}
+              onClick={() => {
+                setIsEditMode((current) => {
+                  const next = !current;
+                  if (next && !skipTutorial) {
+                    setShowTutorial(true);
+                  }
+                  return next;
+                });
+              }}
               disabled={loading}
             >
               {isEditMode ? 'Switch to View Mode' : 'Switch to Edit Mode'}
@@ -1703,10 +1707,17 @@ function ArchitecturePage() {
             </div>
 
             <div className="node-editor-footer">
+              <label className="tutorial-checkbox">
+                <input
+                  type="checkbox"
+                  checked={skipTutorial}
+                  onChange={(event) => setSkipTutorial(event.target.checked)}
+                />
+                Don't show again
+              </label>
               <button
                 className="btn btn-secondary"
                 onClick={() => {
-                  window.localStorage.setItem('codesensei-architecture-tutorial', 'seen');
                   setShowTutorial(false);
                 }}
               >
