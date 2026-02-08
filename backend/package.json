@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "node src/test.js",
-    "validate": "node src/validate.js"
+    "validate": "node src/validate.js",
+    "profile:refactor": "node scripts/profile-refactor-to-design.js"
   },
   "keywords": [
     "ai",

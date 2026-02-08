@@ -20,6 +20,7 @@ const logger = require('./logger');
 const chokidar = require('chokidar');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 
 const app = express();
 
@@ -146,6 +147,51 @@ app.post('/api/index', async (req, res) => {
         logger.error('Indexing failed', { error: error.message, stack: error.stack });
         res.status(500).json({
             error: 'Indexing failed',
+            message: error.message
+        });
+    }
+});
+
+// Incremental index update for a single file (used by editor file watcher)
+app.post('/api/index/file', async (req, res) => {
+    try {
+        const { filePath, content = '', workspacePath } = req.body || {};
+
+        if (!filePath || typeof filePath !== 'string') {
+            return res.status(400).json({ error: 'filePath is required' });
+        }
+
+        const stats = vectorStore.getStats();
+        if (stats.totalChunks === 0) {
+            return res.status(409).json({
+                error: 'No existing index found. Run full indexing first.'
+            });
+        }
+
+        if (workspacePath && typeof workspacePath === 'string') {
+            vectorStore.setWorkspacePath(workspacePath);
+        }
+
+        indexingStatus.isIndexing = true;
+        indexingStatus.currentFile = filePath;
+        indexingStatus.lastUpdate = new Date().toISOString();
+
+        await vectorStore.updateFile(filePath, typeof content === 'string' ? content : '');
+
+        indexingStatus.isIndexing = false;
+        indexingStatus.currentFile = null;
+
+        return res.json({
+            success: true,
+            message: 'Incremental index update complete',
+            stats: vectorStore.getStats()
+        });
+    } catch (error) {
+        indexingStatus.isIndexing = false;
+        indexingStatus.currentFile = null;
+        logger.error('Incremental indexing failed', { error: error.message, stack: error.stack });
+        return res.status(500).json({
+            error: 'Incremental indexing failed',
             message: error.message
         });
     }
@@ -280,8 +326,11 @@ app.post('/api/architecture', async (req, res) => {
 
 // Architecture sync: Mermaid or visual graph -> refactor plan
 app.post('/api/refactor-to-design', async (req, res) => {
+    const requestId = req.header('x-request-id') || randomUUID();
+    res.setHeader('x-request-id', requestId);
+
     try {
-        const { mermaid, originalMermaid, visualGraph } = req.body || {};
+        const { mermaid, originalMermaid, visualGraph, dirtyNodeIds } = req.body || {};
 
         const hasMermaid = typeof mermaid === 'string' && mermaid.trim().length > 0;
         const hasVisualGraph = visualGraph && typeof visualGraph === 'object';
@@ -300,7 +349,7 @@ app.post('/api/refactor-to-design', async (req, res) => {
         }
 
         const result = hasVisualGraph
-            ? await generateRefactorPlanFromVisualGraph({ visualGraph })
+            ? await generateRefactorPlanFromVisualGraph({ visualGraph, dirtyNodeIds }, { requestId })
             : await generateRefactorPlanFromDesign({
                 mermaid: mermaid.trim(),
                 originalMermaid: typeof originalMermaid === 'string' ? originalMermaid.trim() : ''
@@ -308,7 +357,7 @@ app.post('/api/refactor-to-design', async (req, res) => {
 
         res.json(result);
     } catch (error) {
-        logger.error('Architecture sync failed', { error: error.message, stack: error.stack });
+        logger.error('Architecture sync failed', { requestId, error: error.message, stack: error.stack });
         res.status(500).json({ error: 'Architecture sync failed', message: error.message });
     }
 });
@@ -387,6 +436,7 @@ function start() {
 ║    GET  /health         - Health check                        ║
 ║    GET  /api/status     - Index status                        ║
 ║    POST /api/index      - Index project files                 ║
+║    POST /api/index/file - Incremental file index update       ║
 ║    POST /api/ask        - RAG-powered queries                 ║
 ║    POST /api/analyze    - Code analysis                       ║
 ║    POST /api/refactor   - Refactoring suggestions             ║
@@ -399,10 +449,15 @@ function start() {
 
         // Startup Auto-Indexing
         if (config.project.autoIndex) {
+            const startupAutoScanEnabled = process.env.CODESENSEI_ENABLE_STARTUP_SCAN === 'true';
             const stats = vectorStore.getStats();
             if (stats.totalChunks === 0) {
-                console.log('🚀 No cache found. Starting background auto-index...');
-                vectorStore.indexLocalDirectory();
+                if (startupAutoScanEnabled) {
+                    console.log('🚀 No cache found. Starting background auto-index...');
+                    vectorStore.indexLocalDirectory();
+                } else {
+                    console.log('🕒 No cache found. Waiting for workspace index request.');
+                }
             } else {
                 console.log(`📦 Loaded ${stats.totalChunks} chunks from Edge Cache (indexed at ${stats.indexedAt})`);
             }
@@ -423,6 +478,7 @@ function start() {
                 const relativePath = path.relative(rootPath, filePath);
                 // Check if file is in ignore list again just in case
                 if (config.project.ignorePaths.some(p => relativePath.includes(p))) return;
+                if (vectorStore.getStats().totalChunks === 0) return;
 
                 console.log(`📝 File changed: ${relativePath}. Incrementally updating...`);
 

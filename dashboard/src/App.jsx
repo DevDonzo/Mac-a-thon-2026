@@ -1170,7 +1170,7 @@ function createDraftNodeFromTemplate(template, nodes, dropPosition = null) {
   };
 }
 
-function buildBlueprintPayload(nodes, edges) {
+function buildBlueprintPayload(nodes, edges, options = {}) {
   const visualNodes = nodes.map((node) => {
     const name = String(node.data?.label || '').trim();
     const instructions = String(node.data?.instructions || node.data?.goal || '').trim();
@@ -1207,11 +1207,16 @@ function buildBlueprintPayload(nodes, edges) {
     kind: edge.data?.kind || 'visual',
   }));
 
+  const dirtyNodeIds = Array.isArray(options.dirtyNodeIds)
+    ? Array.from(new Set(options.dirtyNodeIds.filter((id) => typeof id === 'string' && id.trim()))).map((id) => id.trim())
+    : undefined;
+
   return {
     visualGraph: {
       nodes: visualNodes,
       edges: visualEdges,
     },
+    dirtyNodeIds,
     blueprint: {
       nodes: visualNodes.map((node) => ({
         id: node.id,
@@ -1265,6 +1270,9 @@ const architectureNodeTypes = {
   [ARCHITECTURE_NODE_TYPE]: ArchitectureFlowNode,
 };
 
+const ARCHITECTURE_COMMIT_WARNING_MS = 30_000;
+const ARCHITECTURE_COMMIT_TIMEOUT_MS = 180_000;
+
 function ArchitecturePage() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1273,6 +1281,7 @@ function ArchitecturePage() {
   const [loading, setLoading] = useState(true);
   const [isCommitting, setIsCommitting] = useState(false);
   const [syncError, setSyncError] = useState('');
+  const [syncInfo, setSyncInfo] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [graphMessage, setGraphMessage] = useState('');
   const [refactorPlan, setRefactorPlan] = useState(null);
@@ -1283,6 +1292,28 @@ function ArchitecturePage() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [skipTutorial, setSkipTutorial] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [dirtyNodeIds, setDirtyNodeIds] = useState([]);
+  const commitAbortRef = useRef(null);
+  const longCommitTimerRef = useRef(null);
+  const hardCommitTimerRef = useRef(null);
+  const commitTimedOutRef = useRef(false);
+
+  const clearCommitTimers = useCallback(() => {
+    if (longCommitTimerRef.current) {
+      window.clearTimeout(longCommitTimerRef.current);
+      longCommitTimerRef.current = null;
+    }
+    if (hardCommitTimerRef.current) {
+      window.clearTimeout(hardCommitTimerRef.current);
+      hardCommitTimerRef.current = null;
+    }
+  }, []);
+
+  const abortCommitRequest = useCallback(() => {
+    if (commitAbortRef.current) {
+      commitAbortRef.current.abort();
+    }
+  }, []);
 
   const graphStats = useMemo(() => {
     const actualNodes = nodes.filter((node) => node.data?.kind === 'actual').length;
@@ -1307,6 +1338,7 @@ function ArchitecturePage() {
     setEditorInstructions(String(node.data?.instructions || node.data?.goal || '').trim());
     setEditorOpen(true);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('');
   }, [isEditMode]);
 
@@ -1318,6 +1350,8 @@ function ArchitecturePage() {
     if (!editingNodeId) return;
     const nextName = editorName.trim() || 'Untitled Component';
     const nextInstructions = editorInstructions.trim();
+    const previousName = String(editingNode?.data?.label || '').trim();
+    const previousInstructions = String(editingNode?.data?.instructions || editingNode?.data?.goal || '').trim();
 
     setNodes((currentNodes) => currentNodes.map((node) => (
       node.id === editingNodeId
@@ -1333,15 +1367,21 @@ function ArchitecturePage() {
         : node
     )));
 
+    if (previousName !== nextName || previousInstructions !== nextInstructions) {
+      setDirtyNodeIds((current) => (current.includes(editingNodeId) ? current : [...current, editingNodeId]));
+    }
+
     setEditorOpen(false);
     setRefactorPlan(null);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('Component saved.');
   };
 
   const loadArchitectureGraph = useCallback(async () => {
     setLoading(true);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('');
 
     try {
@@ -1358,11 +1398,13 @@ function ArchitecturePage() {
       setRefactorPlan(null);
       setEditorOpen(false);
       setEditingNodeId(null);
+      setDirtyNodeIds([]);
     } catch (error) {
       console.error('Failed to load architecture graph:', error);
       setNodes([]);
       setEdges([]);
       setGraphMessage('');
+      setDirtyNodeIds([]);
       setSyncError(error.message || 'Failed to load architecture graph.');
     } finally {
       setLoading(false);
@@ -1393,6 +1435,14 @@ function ArchitecturePage() {
     }
   }, [isEditMode]);
 
+  useEffect(() => () => {
+    clearCommitTimers();
+    if (commitAbortRef.current) {
+      commitAbortRef.current.abort();
+      commitAbortRef.current = null;
+    }
+  }, [clearCommitTimers]);
+
   const addDraftNodeFromTemplate = useCallback((templateId = 'blank-component', dropPosition = null) => {
     const template = getLibraryTemplate(templateId);
 
@@ -1403,6 +1453,7 @@ function ArchitecturePage() {
 
     setRefactorPlan(null);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('');
   }, [setNodes]);
 
@@ -1462,6 +1513,7 @@ function ArchitecturePage() {
     URL.revokeObjectURL(url);
     setSaveMessage('Blueprint JSON downloaded.');
     setSyncError('');
+    setSyncInfo('');
   };
 
   const onConnect = useCallback((connection) => {
@@ -1480,25 +1532,51 @@ function ArchitecturePage() {
     }, currentEdges));
     setRefactorPlan(null);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('');
   }, [isEditMode, setEdges]);
 
   const commitDesignToCode = async () => {
+    if (isCommitting) return;
+
     if (nodes.length === 0) {
       setSyncError('No architecture graph to commit. Index your project first.');
+      setSyncInfo('');
+      return;
+    }
+
+    if (dirtyNodeIds.length === 0) {
+      setSyncError('No edited components to commit. Save node instruction changes, then commit.');
+      setSyncInfo('');
       return;
     }
 
     setIsCommitting(true);
     setSyncError('');
+    setSyncInfo('');
     setSaveMessage('');
+    clearCommitTimers();
+
+    const abortController = new AbortController();
+    commitAbortRef.current = abortController;
+    commitTimedOutRef.current = false;
+
+    longCommitTimerRef.current = window.setTimeout(() => {
+      setSyncInfo('Still syncing after 30 seconds. Large graph prompts can take longer; you can keep waiting or cancel.');
+    }, ARCHITECTURE_COMMIT_WARNING_MS);
+
+    hardCommitTimerRef.current = window.setTimeout(() => {
+      commitTimedOutRef.current = true;
+      abortController.abort();
+    }, ARCHITECTURE_COMMIT_TIMEOUT_MS);
 
     try {
-      const payload = buildBlueprintPayload(nodes, edges);
+      const payload = buildBlueprintPayload(nodes, edges, { dirtyNodeIds });
       const res = await fetch(`${API_URL}/api/refactor-to-design`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: abortController.signal,
       });
 
       const data = await res.json();
@@ -1507,11 +1585,44 @@ function ArchitecturePage() {
       }
 
       setRefactorPlan(data);
+      setDirtyNodeIds([]);
+      setSyncInfo('');
+      const touchedFiles = Array.isArray(data?.changedFiles) ? data.changedFiles : [];
+      const changedCount = touchedFiles.filter((file) => file?.changed !== false).length;
+      const warningHint = Array.isArray(data?.warnings) && data.warnings.length > 0
+        ? ` ${data.warnings[0]}`
+        : '';
+      if (data?.profiling?.steps?.length) {
+        const stepSummary = data.profiling.steps
+          .map((step) => `${step.step}: ${Math.round(step.durationMs)}ms`)
+          .join(' · ');
+        if (changedCount > 0) {
+          setSaveMessage(`Commit complete. Updated ${changedCount} file(s). ${stepSummary}`);
+        } else {
+          setSaveMessage(`Commit finished without file diff. ${stepSummary}${warningHint}`);
+        }
+      } else {
+        if (changedCount > 0) {
+          setSaveMessage(`Commit complete. Updated ${changedCount} file(s).`);
+        } else {
+          setSaveMessage(`${data.summary || 'Commit complete.'}${warningHint}`);
+        }
+      }
     } catch (error) {
       console.error('Commit design to code failed:', error);
       setRefactorPlan(null);
-      setSyncError(error.message || 'Failed to generate refactor plan from visual graph.');
+      if (error.name === 'AbortError') {
+        if (commitTimedOutRef.current) {
+          setSyncError('Sync timed out after 180 seconds. Try smaller graph slices or fewer instructions per run.');
+        } else {
+          setSyncError('Sync canceled.');
+        }
+      } else {
+        setSyncError(error.message || 'Failed to generate refactor plan from visual graph.');
+      }
     } finally {
+      clearCommitTimers();
+      commitAbortRef.current = null;
       setIsCommitting(false);
     }
   };
@@ -1551,15 +1662,26 @@ function ArchitecturePage() {
               <Activity size={16} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Refreshing...' : 'Refresh from AST'}
             </button>
-            <button className="btn btn-primary" onClick={commitDesignToCode} disabled={loading || isCommitting || nodes.length === 0}>
+            <button
+              className="btn btn-primary"
+              onClick={commitDesignToCode}
+              disabled={loading || isCommitting || nodes.length === 0 || dirtyNodeIds.length === 0}
+              title={dirtyNodeIds.length === 0 ? 'Save node edits to enable commit' : 'Apply edited node instructions to code'}
+            >
               <ArrowRight size={16} className={isCommitting ? 'animate-pulse' : ''} />
               {isCommitting ? 'Syncing...' : 'Commit to Code'}
             </button>
+            {isCommitting && (
+              <button className="btn btn-secondary" onClick={abortCommitRequest}>
+                Cancel Sync
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {syncError && <div className="alert-card error architecture-sync-error">{syncError}</div>}
+      {syncInfo && <div className="alert-card success architecture-sync-error">{syncInfo}</div>}
       {saveMessage && <div className="alert-card success architecture-sync-error">{saveMessage}</div>}
 
       <div className="card architecture-card">
@@ -1665,6 +1787,7 @@ function ArchitecturePage() {
                     <div>Actual: {graphStats.actualNodes}</div>
                     <div>Draft: {graphStats.draftNodes}</div>
                     <div>AI Notes: {graphStats.instructedNodes}</div>
+                    <div>Pending: {dirtyNodeIds.length}</div>
                     <div>Edges: {graphStats.edgeCount}</div>
                   </Panel>
                   <Panel position="top-right" className="architecture-flow-panel subtle">
@@ -1702,7 +1825,7 @@ function ArchitecturePage() {
               </div>
               <div className="tutorial-step">
                 <strong>4. Commit to Code</strong>
-                <p>When ready, click Commit to Code to generate a refactor plan and review it before changes.</p>
+                <p>When ready, click Commit to Code to apply your node instructions directly to files.</p>
               </div>
             </div>
 
@@ -1768,9 +1891,9 @@ function ArchitecturePage() {
 
       {refactorPlan && (
         <div className="card architecture-plan-card">
-          <h3>Refactor Plan Preview</h3>
+          <h3>Commit Result</h3>
           <p className="architecture-plan-summary">
-            {refactorPlan.summary || 'Review this plan before applying code changes.'}
+            {refactorPlan.summary || 'Review the commit output below.'}
           </p>
 
           {refactorPlan.comparison && (
@@ -1779,6 +1902,29 @@ function ArchitecturePage() {
               <span>Desired Edges: {refactorPlan.comparison.desiredEdgeCount}</span>
               <span>Mapped: {refactorPlan.comparison.mappedDesiredEdgeCount ?? 0}</span>
               <span>Coverage: {Math.round((refactorPlan.comparison.mappingCoverage || 0) * 100)}%</span>
+            </div>
+          )}
+
+          {refactorPlan.profiling?.steps?.length > 0 && (
+            <div className="architecture-plan-metrics">
+              {refactorPlan.profiling.steps.map((step) => (
+                <span key={step.step}>
+                  {step.step}: {Math.round(step.durationMs)}ms
+                </span>
+              ))}
+              {typeof refactorPlan.profiling.totalMs === 'number' && (
+                <span>Total: {Math.round(refactorPlan.profiling.totalMs)}ms</span>
+              )}
+            </div>
+          )}
+
+          {refactorPlan.changedFiles?.length > 0 && (
+            <div className="architecture-plan-metrics">
+              {refactorPlan.changedFiles.map((file) => (
+                <span key={`${file.filePath}-${file.action}`}>
+                  {file.changed === false ? 'Reviewed' : 'Updated'}: {file.filePath}
+                </span>
+              ))}
             </div>
           )}
 
@@ -1808,7 +1954,7 @@ function ArchitecturePage() {
               ))}
             </ul>
           ) : (
-            <p className="architecture-plan-empty">No deterministic plan items returned. Add goals/arrows and sync again.</p>
+            <p className="architecture-plan-empty">No file operations were produced. Add instructions to nodes and sync again.</p>
           )}
 
           {refactorPlan.questions?.length > 0 && (

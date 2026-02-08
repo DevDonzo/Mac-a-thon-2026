@@ -211,14 +211,20 @@ class ASTParser {
                 return this.createLineBasedChunks(filePath, content);
             }
 
-            // Sort symbols by line number
-            symbols.sort((a, b) => a.line - b.line);
+            // Use only high-signal boundaries to avoid over-fragmenting files into tiny chunks.
+            const boundarySymbols = symbols
+                .filter((symbol) => symbol.type === 'function' || symbol.type === 'class')
+                .sort((a, b) => a.line - b.line);
+
+            if (boundarySymbols.length === 0) {
+                return this.createLineBasedChunks(filePath, content);
+            }
 
             // Create chunks for each symbol
-            for (let i = 0; i < symbols.length; i++) {
-                const symbol = symbols[i];
+            for (let i = 0; i < boundarySymbols.length; i++) {
+                const symbol = boundarySymbols[i];
                 const startLine = symbol.line - 1; // 0-indexed
-                const endLine = i < symbols.length - 1 ? symbols[i + 1].line - 2 : lines.length - 1;
+                const endLine = i < boundarySymbols.length - 1 ? boundarySymbols[i + 1].line - 2 : lines.length - 1;
 
                 const chunkLines = lines.slice(startLine, endLine + 1);
                 const chunkText = chunkLines.join('\n').trim();

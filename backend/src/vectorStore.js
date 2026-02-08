@@ -38,15 +38,19 @@ class VectorStore {
      */
     async indexWorkspaceDirectory(workspacePath) {
         logger.info(`Indexing workspace directory: ${workspacePath}`);
+        const startedAt = Date.now();
 
         try {
+            const discoverStart = Date.now();
             const files = glob.sync('**/*.{js,jsx,ts,tsx,py,md,json}', {
                 cwd: workspacePath,
                 ignore: config.project.ignorePaths.map(p => `**/${p}/**`),
                 nodir: true,
                 absolute: false
             });
+            const discoverMs = Date.now() - discoverStart;
 
+            const readStart = Date.now();
             const fileData = files.map(f => {
                 const fullPath = path.join(workspacePath, f);
                 try {
@@ -59,12 +63,26 @@ class VectorStore {
                     return null;
                 }
             }).filter(f => f !== null);
+            const readMs = Date.now() - readStart;
 
             const projectName = path.basename(workspacePath);
+            logger.info('Workspace file discovery complete', {
+                workspacePath,
+                discoveredFiles: files.length,
+                readableFiles: fileData.length,
+                discoverMs,
+                readMs
+            });
+
             return await this.indexProject(projectName, fileData);
         } catch (error) {
             logger.error('Workspace indexing failed', { error: error.message });
             return { success: false, error: error.message };
+        } finally {
+            logger.info('Workspace indexing request finished', {
+                workspacePath,
+                totalMs: Date.now() - startedAt
+            });
         }
     }
 
@@ -79,6 +97,7 @@ class VectorStore {
         this.hasEmbeddings = false;
 
         // Split files into chunks
+        const chunkingStart = Date.now();
         const allChunks = [];
         for (const file of files) {
             if (!file.content || file.content.trim().length === 0) continue;
@@ -86,6 +105,7 @@ class VectorStore {
             const fileChunks = this.splitIntoChunks(file.path, file.content);
             allChunks.push(...fileChunks);
         }
+        const chunkingMs = Date.now() - chunkingStart;
 
         if (allChunks.length === 0) {
             logger.warn('No chunks generated from files');
@@ -95,8 +115,10 @@ class VectorStore {
         logger.info(`Generated ${allChunks.length} chunks, generating embeddings...`);
 
         // Generate embeddings
+        const embeddingStart = Date.now();
         const texts = allChunks.map(c => c.text);
         const embeddings = await generateEmbeddings(texts);
+        const embeddingMs = Date.now() - embeddingStart;
 
         const indexedChunks = [];
         if (embeddings && embeddings.length === allChunks.length) {
@@ -128,19 +150,29 @@ class VectorStore {
         this.indexedAt = new Date().toISOString();
         const elapsed = Date.now() - startTime;
 
+        const saveStart = Date.now();
+        this.save(); // Save to cache
+        const saveMs = Date.now() - saveStart;
+
         logger.info(`Indexing complete`, {
             chunks: this.chunks.length,
             files: new Set(this.chunks.map(c => c.path)).size,
-            timeMs: elapsed
+            timeMs: elapsed,
+            chunkingMs,
+            embeddingMs,
+            saveMs
         });
-
-        this.save(); // Save to cache
 
         return {
             success: true,
             chunksIndexed: this.chunks.length,
             filesIndexed: new Set(this.chunks.map(c => c.path)).size,
-            timeMs: elapsed
+            timeMs: elapsed,
+            profiling: {
+                chunkingMs,
+                embeddingMs,
+                saveMs
+            }
         };
     }
 
@@ -150,14 +182,18 @@ class VectorStore {
     async indexLocalDirectory() {
         const rootPath = path.resolve(__dirname, config.project.root);
         logger.info(`Auto-indexing local directory: ${rootPath}`);
+        const startedAt = Date.now();
 
         try {
+            const discoverStart = Date.now();
             const files = glob.sync('**/*.{js,jsx,ts,tsx,py,md,json}', {
                 cwd: rootPath,
                 ignore: config.project.ignorePaths.map(p => `**/${p}/**`),
                 nodir: true
             });
+            const discoverMs = Date.now() - discoverStart;
 
+            const readStart = Date.now();
             const fileData = files.map(f => {
                 const fullPath = path.join(rootPath, f);
                 try {
@@ -169,11 +205,25 @@ class VectorStore {
                     return null;
                 }
             }).filter(f => f !== null);
+            const readMs = Date.now() - readStart;
+
+            logger.info('Local file discovery complete', {
+                rootPath,
+                discoveredFiles: files.length,
+                readableFiles: fileData.length,
+                discoverMs,
+                readMs
+            });
 
             return await this.indexProject('local-project', fileData);
         } catch (error) {
             logger.error('Auto-indexing failed', { error: error.message });
             return { success: false, error: error.message };
+        } finally {
+            logger.info('Auto-index request finished', {
+                rootPath,
+                totalMs: Date.now() - startedAt
+            });
         }
     }
 

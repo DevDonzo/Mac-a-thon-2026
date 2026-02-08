@@ -22,6 +22,25 @@ const EXCLUDE_PATTERNS = [
 ];
 const MAX_FILE_SIZE = 100000; // 100KB
 const MAX_FILES = 500;
+const FILE_SYNC_DEBOUNCE_MS = 1200;
+const AUTO_INDEX_IGNORE_REGEX = [
+  /(^|\/)\.git\//,
+  /(^|\/)node_modules\//,
+  /(^|\/)dist\//,
+  /(^|\/)build\//,
+  /(^|\/)target\//,
+  /(^|\/)vendor\//,
+  /(^|\/)__pycache__\//,
+  /(^|\/)\.venv\//,
+  /(^|\/)venv\//,
+  /(^|\/)bin\//,
+  /(^|\/)obj\//,
+  /(^|\/)backend\/vector_cache\.json$/,
+  /(^|\/)vector_cache\.json$/,
+  /\.min\.js$/,
+  /\.map$/,
+  /\.log$/
+];
 
 let statusBarItem;
 let isIndexing = false;
@@ -33,6 +52,8 @@ let dashboardProcess;
 let healthInterval;
 let lastBackendOk = false;
 let bootComplete = false;
+let fileSyncTimeout;
+const pendingFileEvents = new Map();
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -72,22 +93,12 @@ function activate(context) {
     log('Boot sequence FAILED', { error: err.message, stack: err.stack });
   });
 
-  // File watcher for auto re-index
-  // Watch all relevant file types defined in INCLUDE_PATTERNS
+  // File watcher for incremental index updates
+  // Use file-level sync to avoid full re-index loops.
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{js,ts,jsx,tsx,py,java,go,rs,rb,php,css,html,md,json,yaml,yml,c,cpp,cs,swift,kt,scala}');
-  let reindexTimeout;
-  const scheduleReindex = () => {
-    if (!bootComplete) return;
-    clearTimeout(reindexTimeout);
-    reindexTimeout = setTimeout(() => {
-      log('Auto-indexing triggered by file change');
-      indexWorkspace(false);
-    }, 2000);
-  };
-
-  watcher.onDidChange(scheduleReindex);
-  watcher.onDidCreate(scheduleReindex);
-  watcher.onDidDelete(scheduleReindex);
+  watcher.onDidChange((uri) => scheduleIncrementalSync(uri, 'change'));
+  watcher.onDidCreate((uri) => scheduleIncrementalSync(uri, 'create'));
+  watcher.onDidDelete((uri) => scheduleIncrementalSync(uri, 'delete'));
   context.subscriptions.push(watcher);
 }
 
@@ -114,6 +125,28 @@ function getAutoStartConfig() {
     backendStartCommand: config.get('backendStartCommand') || '',
     dashboardStartCommand: config.get('dashboardStartCommand') || '',
   };
+}
+
+function getIndexingConfig() {
+  const config = vscode.workspace.getConfiguration('codesensei');
+  return {
+    autoIndex: config.get('autoIndex') !== false,
+    maxFilesToIndex: Number(config.get('maxFilesToIndex') || MAX_FILES)
+  };
+}
+
+function normalizeRelativePath(uriOrPath) {
+  const raw = typeof uriOrPath === 'string'
+    ? uriOrPath
+    : vscode.workspace.asRelativePath(uriOrPath);
+
+  return String(raw || '').replace(/\\/g, '/');
+}
+
+function shouldIgnoreAutoIndexPath(relativePath) {
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized || normalized.startsWith('..')) return true;
+  return AUTO_INDEX_IGNORE_REGEX.some((pattern) => pattern.test(normalized));
 }
 
 function resolveNodeDir() {
@@ -149,6 +182,15 @@ async function isBackendRunning() {
     return Boolean(res.data && res.data.status === 'ok');
   } catch {
     return false;
+  }
+}
+
+async function getBackendStatus() {
+  try {
+    const res = await axios.get(`${getApiUrl()}/api/status`, { timeout: 2500 });
+    return res.data || null;
+  } catch {
+    return null;
   }
 }
 
@@ -324,9 +366,28 @@ async function bootServices() {
     }
   }
 
-  // 3. Index workspace if backend is up
-  if (await isBackendRunning()) {
-    await indexWorkspace(false);
+  // 3. Index workspace once on boot (if enabled) and backend is up
+  const indexingConfig = getIndexingConfig();
+  if (indexingConfig.autoIndex && await isBackendRunning()) {
+    const backendStatus = await getBackendStatus();
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    const backendWorkspace = backendStatus?.workspace || null;
+    const backendFilesIndexed = backendStatus?.stats?.filesIndexed || 0;
+
+    const sameWorkspace = workspacePath && backendWorkspace
+      ? workspacePath === backendWorkspace
+      : false;
+
+    if (backendFilesIndexed > 0 && (sameWorkspace || !workspacePath)) {
+      indexedFiles = backendFilesIndexed;
+      updateStatus('ready', `Backend already indexed ${indexedFiles} files.`);
+      log('Skipping startup re-index; backend index is already warm', {
+        backendWorkspace,
+        indexedFiles
+      });
+    } else {
+      await indexWorkspace(false);
+    }
   }
 
   // 4. Start health polling and allow file-watcher reindexing
@@ -369,13 +430,21 @@ function updateStatus(state, tooltip) {
 function startHealthPolling() {
   if (healthInterval) return;
   healthInterval = setInterval(async () => {
+    const indexingConfig = getIndexingConfig();
     const ok = await isBackendRunning();
     if (ok !== lastBackendOk) {
       lastBackendOk = ok;
       if (ok) {
         log('Backend is online');
-        if (indexedFiles === 0 && !isIndexing) {
-          indexWorkspace(false);
+        if (indexingConfig.autoIndex && indexedFiles === 0 && !isIndexing) {
+          const backendStatus = await getBackendStatus();
+          const backendFilesIndexed = backendStatus?.stats?.filesIndexed || 0;
+          if (backendFilesIndexed > 0) {
+            indexedFiles = backendFilesIndexed;
+            updateStatus('ready', `Backend connected. Indexed ${indexedFiles} files.`);
+          } else {
+            indexWorkspace(false);
+          }
         } else if (!isIndexing) {
           updateStatus('ready', `Backend connected. Indexed ${indexedFiles} files.`);
         }
@@ -384,6 +453,87 @@ function startHealthPolling() {
       }
     }
   }, 5000);
+}
+
+function scheduleIncrementalSync(uri, eventType) {
+  if (!bootComplete || isIndexing || !uri) return;
+  if (!getIndexingConfig().autoIndex) return;
+  const relativePath = normalizeRelativePath(uri);
+  if (shouldIgnoreAutoIndexPath(relativePath)) return;
+
+  pendingFileEvents.set(relativePath, { uri, eventType, relativePath });
+  clearTimeout(fileSyncTimeout);
+  fileSyncTimeout = setTimeout(() => {
+    flushPendingFileEvents().catch((error) => {
+      log('Incremental sync flush failed', { error: error.message });
+    });
+  }, FILE_SYNC_DEBOUNCE_MS);
+}
+
+async function flushPendingFileEvents() {
+  if (isIndexing || pendingFileEvents.size === 0) return;
+  if (!vscode.workspace.workspaceFolders) return;
+
+  const events = Array.from(pendingFileEvents.values());
+  pendingFileEvents.clear();
+
+  for (const fileEvent of events) {
+    await syncSingleFile(fileEvent);
+  }
+}
+
+async function syncSingleFile({ uri, eventType, relativePath }) {
+  if (shouldIgnoreAutoIndexPath(relativePath)) return;
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) return;
+
+  const payload = {
+    filePath: relativePath,
+    workspacePath: workspaceFolder.uri.fsPath
+  };
+
+  try {
+    if (eventType === 'delete') {
+      payload.content = '';
+    } else {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (stat.size > MAX_FILE_SIZE) {
+        log('Skipping incremental sync for large file', { path: relativePath, size: stat.size });
+        return;
+      }
+
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = Buffer.from(content).toString('utf8');
+
+      if (text.includes('\0')) {
+        log('Skipping incremental sync for binary file', { path: relativePath });
+        return;
+      }
+
+      payload.content = text;
+    }
+
+    const response = await axios.post(`${getApiUrl()}/api/index/file`, payload, {
+      timeout: 120000
+    });
+
+    indexedFiles = response.data?.stats?.filesIndexed || indexedFiles;
+    updateStatus('ready', `Indexed ${indexedFiles} files (${response.data?.stats?.totalChunks || 0} chunks). Click for options.`);
+    log('Incremental index update complete', { path: relativePath, eventType });
+  } catch (error) {
+    const status = error?.response?.status;
+    log('Incremental index update failed', {
+      path: relativePath,
+      eventType,
+      status,
+      error: error.message
+    });
+
+    // No baseline index exists yet; do one full sync.
+    if (status === 409 && !isIndexing) {
+      await indexWorkspace(false);
+    }
+  }
 }
 
 async function indexWorkspace(showNotification = false) {
@@ -398,11 +548,14 @@ async function indexWorkspace(showNotification = false) {
   }
 
   isIndexing = true;
+  pendingFileEvents.clear();
+  clearTimeout(fileSyncTimeout);
   updateStatus('indexing', 'Scanning and indexing project files...');
   log('Starting workspace indexing');
 
   const workspaceFolder = vscode.workspace.workspaceFolders[0];
   const projectId = path.basename(workspaceFolder.uri.fsPath);
+  const indexingConfig = getIndexingConfig();
 
   try {
     // Check backend connection
@@ -410,7 +563,7 @@ async function indexWorkspace(showNotification = false) {
     log('Backend connected', { status: healthCheck.data.status });
 
     // Gather files
-    const files = await gatherProjectFiles(workspaceFolder.uri);
+    const files = await gatherProjectFiles(workspaceFolder.uri, indexingConfig.maxFilesToIndex);
     log(`Found ${files.length} files to index`);
 
     if (files.length === 0) {
@@ -446,16 +599,17 @@ async function indexWorkspace(showNotification = false) {
   }
 }
 
-async function gatherProjectFiles(workspaceUri) {
+async function gatherProjectFiles(workspaceUri, maxFiles = MAX_FILES) {
   const files = [];
   const seenPaths = new Set();
+  const maxFilesLimit = Number(maxFiles || MAX_FILES);
 
   for (const pattern of INCLUDE_PATTERNS) {
-    if (files.length >= MAX_FILES) break;
+    if (files.length >= maxFilesLimit) break;
 
     try {
       const excludePattern = '{' + EXCLUDE_PATTERNS.join(',') + '}';
-      const uris = await vscode.workspace.findFiles(pattern, excludePattern, MAX_FILES - files.length);
+      const uris = await vscode.workspace.findFiles(pattern, excludePattern, maxFilesLimit - files.length);
 
       for (const uri of uris) {
         const relativePath = vscode.workspace.asRelativePath(uri);
@@ -1028,6 +1182,11 @@ function deactivate() {
     clearInterval(healthInterval);
     healthInterval = null;
   }
+  if (fileSyncTimeout) {
+    clearTimeout(fileSyncTimeout);
+    fileSyncTimeout = null;
+  }
+  pendingFileEvents.clear();
   if (backendProcess) {
     try { backendProcess.kill(); } catch {}
     backendProcess = null;

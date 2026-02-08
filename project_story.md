@@ -4,7 +4,7 @@ The idea for CodeSensei came from a personal frustration I face every time I jum
 
 ### How I Built It
 
-I built CodeSensei as a bridge between the code editor and a high-level architectural view. The core engine is powered by Google Cloud's Vertex AI, specifically using Gemini 2.0 Flash for its reasoning speed and text-embedding-004 for semantic search. To make the AI truly understand the code, I implemented a custom AST parser using Babel. This allows the system to index code at the symbol level—identifying specific functions, classes, and variables—rather than using arbitrary character counts for chunking.
+I built CodeSensei as a bridge between the code editor and a high-level architectural view. The core engine is powered by Google Cloud's Vertex AI, specifically using Gemini 2.0 Flash for its reasoning speed and text-embedding-004 for semantic search. To make the AI truly understand the code, I implemented a custom AST parser using Babel. This allows the system to index code at the symbol level, identifying specific functions, classes, and variables, rather than using arbitrary character counts for chunking.
 
 I integrated Backboard.io to handle persistent memory between the VS Code extension and the web dashboard. This ensures that the context of a conversation travels with the developer, regardless of which interface they are using. The dashboard itself uses force-directed graphs to visualize "Code DNA" and React Flow to create an interactive architecture builder, where users can visually design system changes that the AI then translates into technical refactor plans.
 
@@ -16,4 +16,4 @@ Another challenge was managing the signal-to-noise ratio in the retrieval-augmen
 
 ### What I Learned
 
-This project taught me that the future of development tools is not about replacing the developer, but about augmenting their ability to reason about complex systems. I learned a massive amount about abstract syntax trees, vector embeddings, and the nuances of grounding LLMs in highly structured data like source code. Building this solo required wearing many hats—from extension development and backend architecture to data visualization—and it reinforced my belief that the most powerful developer tools are those that provide transparency and allow for a high degree of auditability.
+This project taught me that the future of development tools is not about replacing the developer, but about augmenting their ability to reason about complex systems. I learned a massive amount about abstract syntax trees, vector embeddings, and the nuances of grounding LLMs in highly structured data like source code. Building this solo required wearing many hats, from extension development and backend architecture to data visualization, and it reinforced my belief that the most powerful developer tools are those that provide transparency and allow for a high degree of auditability.

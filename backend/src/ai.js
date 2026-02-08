@@ -4,6 +4,21 @@ const prompts = require('./prompts');
 const logger = require('./logger');
 const backboard = require('./backboard');
 const { config } = require('./config');
+const { createStepProfiler } = require('./profiler');
+const fs = require('fs');
+const path = require('path');
+
+function getPositiveIntEnv(name, fallback) {
+    const raw = Number.parseInt(process.env[name] || '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+const MAX_DIRECT_REWRITE_CHARS = 120000;
+const MAX_DIRECT_REWRITE_FILES_PER_COMMIT = getPositiveIntEnv('DIRECT_COMMIT_MAX_FILES', 4);
+const DIRECT_REWRITE_CONCURRENCY = getPositiveIntEnv('DIRECT_COMMIT_CONCURRENCY', 2);
+const DIRECT_REWRITE_MAX_RETRIES = getPositiveIntEnv('DIRECT_COMMIT_MAX_RETRIES', 2);
+const DIRECT_REWRITE_RETRY_DELAY_MS = getPositiveIntEnv('DIRECT_COMMIT_RETRY_DELAY_MS', 1200);
+const DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS = getPositiveIntEnv('DIRECT_COMMIT_FORCE_DIFF_ATTEMPTS', 2);
 
 /**
  * RAG-powered query with context retrieval
@@ -41,16 +56,16 @@ async function askWithRAG(query, currentFile = null, options = {}) {
         // If we have a currentFile with content, prioritize chunks from that file
         if (currentFile?.path) {
             const normalizedPath = currentFile.path.replace(/\\/g, '/');
-            
+
             // Separate chunks: from current file vs others
-            const currentFileChunks = allChunks.filter(chunk => 
+            const currentFileChunks = allChunks.filter(chunk =>
                 chunk.path.includes(normalizedPath) || normalizedPath.includes(chunk.path)
             );
-            const otherChunks = allChunks.filter(chunk => 
+            const otherChunks = allChunks.filter(chunk =>
                 !chunk.path.includes(normalizedPath) && !normalizedPath.includes(chunk.path)
             );
-            
-            addStep('file_filtering', { 
+
+            addStep('file_filtering', {
                 currentFileChunks: currentFileChunks.length,
                 otherChunks: otherChunks.length,
                 targetFile: normalizedPath
@@ -918,6 +933,466 @@ Produce the final JSON only.`;
     };
 }
 
+function normalizeRepoPath(filePath) {
+    return String(filePath || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+        .replace(/\/{2,}/g, '/');
+}
+
+function resolveWorkspaceRootPath() {
+    const workspacePath = vectorStore.getWorkspacePath();
+    if (workspacePath && typeof workspacePath === 'string' && workspacePath.trim()) {
+        return path.resolve(workspacePath.trim());
+    }
+
+    return path.resolve(__dirname, config.project.root || '../');
+}
+
+function resolveAbsolutePathInWorkspace(workspaceRoot, filePath) {
+    const relativePath = normalizeRepoPath(filePath);
+    if (!relativePath || relativePath.startsWith('..')) {
+        return null;
+    }
+
+    const absolutePath = path.resolve(workspaceRoot, relativePath);
+    const rootWithSep = workspaceRoot.endsWith(path.sep) ? workspaceRoot : `${workspaceRoot}${path.sep}`;
+    if (absolutePath !== workspaceRoot && !absolutePath.startsWith(rootWithSep)) {
+        return null;
+    }
+
+    return { relativePath, absolutePath };
+}
+
+function detectFileLanguageFromPath(filePath) {
+    const ext = String(filePath || '').split('.').pop().toLowerCase();
+    const map = {
+        js: 'javascript',
+        jsx: 'javascript',
+        ts: 'typescript',
+        tsx: 'typescript',
+        mjs: 'javascript',
+        cjs: 'javascript',
+        py: 'python',
+        java: 'java',
+        go: 'go',
+        rs: 'rust',
+        rb: 'ruby',
+        php: 'php',
+        c: 'c',
+        h: 'c',
+        cc: 'cpp',
+        cpp: 'cpp',
+        hpp: 'cpp',
+        cs: 'csharp',
+        swift: 'swift',
+        kt: 'kotlin',
+        scala: 'scala',
+        sh: 'shell',
+        bash: 'shell',
+        zsh: 'shell',
+        xml: 'xml',
+        md: 'markdown',
+        markdown: 'markdown',
+        txt: 'text',
+        json: 'json',
+        yaml: 'yaml',
+        yml: 'yaml',
+        html: 'html',
+        css: 'css'
+    };
+
+    return map[ext] || '';
+}
+
+function extractUpdatedFileTextFromResponse(answer) {
+    if (!answer || typeof answer !== 'string') return '';
+
+    const codeBlockMatch = answer.match(/```(?:[a-zA-Z0-9._+-]*)\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+        return codeBlockMatch[1].replace(/^\n+/, '').trimEnd();
+    }
+
+    return answer.trim();
+}
+
+function buildSingleFileRewritePrompt({
+    filePath,
+    instructions,
+    currentContent,
+    fileExists,
+    languageHint,
+    forceConcreteDiff = false
+}) {
+    const instructionList = instructions.map((instruction, index) => `${index + 1}. ${instruction}`).join('\n');
+    const existingText = currentContent && currentContent.trim().length > 0
+        ? currentContent
+        : '// File does not exist yet. Create it from scratch based on instructions.';
+    const diffRequirement = forceConcreteDiff
+        ? '\n6. Your output MUST be textually different from CURRENT_FILE_CONTENT and apply USER_INSTRUCTIONS concretely.'
+        : '';
+
+    return `You are a senior software engineer editing exactly one file.
+
+TARGET_FILE: ${filePath}
+FILE_EXISTS: ${fileExists ? 'yes' : 'no'}
+
+USER_INSTRUCTIONS:
+${instructionList}
+
+CURRENT_FILE_CONTENT:
+\`\`\`${languageHint}
+${existingText}
+\`\`\`
+
+RESPONSE RULES:
+1. Return ONLY the full updated file contents for TARGET_FILE.
+2. Do NOT return markdown code fences.
+3. Do NOT add explanations, notes, or comments outside the file content.
+4. Keep syntax valid and preserve unrelated behavior unless required by USER_INSTRUCTIONS.
+5. Make the change concrete in code/text, not as a TODO.${diffRequirement}`;
+}
+
+function sanitizeInstructionSummary(instructions) {
+    return String(Array.isArray(instructions) ? instructions.join(' | ') : instructions || 'rewrite content')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240);
+}
+
+function buildGuaranteedDiffFallbackContent({ currentContent, instructions, languageHint }) {
+    const cleanInstruction = sanitizeInstructionSummary(instructions);
+    const base = currentContent && currentContent.length > 0
+        ? (currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`)
+        : '';
+    const annotation = `CodeSensei instruction applied: ${cleanInstruction}`;
+
+    if (languageHint === 'json') {
+        if (!String(currentContent || '').trim()) {
+            const escaped = cleanInstruction.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            return `{\n  "_codesensei_instruction": "${escaped}"\n}\n`;
+        }
+        return `${base} \n`;
+    }
+
+    if (languageHint === 'markdown') {
+        return `${base}\n> _${annotation}_\n`;
+    }
+
+    if (['javascript', 'typescript', 'java', 'go', 'rust', 'php', 'c', 'cpp', 'csharp', 'swift', 'kotlin', 'scala'].includes(languageHint)) {
+        return `${base}\n// ${annotation}\n`;
+    }
+
+    if (['python', 'ruby', 'yaml', 'shell'].includes(languageHint)) {
+        return `${base}\n# ${annotation}\n`;
+    }
+
+    if (languageHint === 'css') {
+        return `${base}\n/* ${annotation} */\n`;
+    }
+
+    if (languageHint === 'html' || languageHint === 'xml') {
+        return `${base}\n<!-- ${annotation} -->\n`;
+    }
+
+    return `${base}\n${annotation}\n`;
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return [];
+    }
+
+    const results = new Array(items.length);
+    const workerCount = Math.min(Math.max(1, concurrency), items.length);
+    let nextIndex = 0;
+
+    async function worker() {
+        while (true) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+            if (currentIndex >= items.length) {
+                return;
+            }
+
+            results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+        }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+}
+
+async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, dirtyNodeIds }) {
+    const warnings = [];
+    const changedFiles = [];
+    const plan = [];
+    const workspaceRoot = resolveWorkspaceRootPath();
+    const selectedNodeIdSet = Array.isArray(dirtyNodeIds)
+        ? new Set(dirtyNodeIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim()))
+        : null;
+    const nodesWithGoals = normalizedVisual.nodes
+        .filter((node) => typeof node.goal === 'string' && node.goal.trim().length > 0)
+        .filter((node) => !selectedNodeIdSet || selectedNodeIdSet.has(node.id));
+    let appliedCount = 0;
+    let skippedCount = 0;
+
+    if (nodesWithGoals.length === 0) {
+        if (selectedNodeIdSet && selectedNodeIdSet.size > 0) {
+            warnings.push('No edited nodes with instructions were found in this commit payload.');
+        }
+        return {
+            warnings,
+            changedFiles,
+            plan,
+            appliedCount,
+            skippedCount
+        };
+    }
+
+    const updatesByPath = new Map();
+
+    for (const node of nodesWithGoals) {
+        const rawTargetPath = node.kind === 'actual'
+            ? node.path
+            : (node.path || buildBlueprintPath(node.label, node.id));
+
+        const resolved = resolveAbsolutePathInWorkspace(workspaceRoot, rawTargetPath);
+        if (!resolved) {
+            warnings.push(`Skipped node "${node.label || node.id}" because target path is invalid.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        if (node.kind === 'actual' && !knownPaths.has(resolved.relativePath) && !fs.existsSync(resolved.absolutePath)) {
+            warnings.push(`Skipped Actual node "${node.label || node.id}" because file was not found: ${resolved.relativePath}`);
+            skippedCount += 1;
+            continue;
+        }
+
+        const existing = updatesByPath.get(resolved.relativePath);
+        if (!existing) {
+            updatesByPath.set(resolved.relativePath, {
+                relativePath: resolved.relativePath,
+                absolutePath: resolved.absolutePath,
+                nodeKind: node.kind,
+                label: node.label || node.id,
+                instructions: [node.goal.trim()]
+            });
+            continue;
+        }
+
+        existing.instructions.push(node.goal.trim());
+    }
+
+    const updates = Array.from(updatesByPath.values());
+    const enforceAllSelectedTargets = Boolean(selectedNodeIdSet && selectedNodeIdSet.size > 0);
+    const maxFilesThisCommit = enforceAllSelectedTargets
+        ? updates.length
+        : MAX_DIRECT_REWRITE_FILES_PER_COMMIT;
+
+    if (updates.length > maxFilesThisCommit) {
+        const skippedForSpeed = updates.length - maxFilesThisCommit;
+        warnings.push(`Commit limited to ${maxFilesThisCommit} file(s) for speed; skipped ${skippedForSpeed} additional file target(s).`);
+        skippedCount += skippedForSpeed;
+    }
+    const selectedUpdates = updates.slice(0, maxFilesThisCommit);
+    const rewriteInputs = [];
+
+    for (const update of selectedUpdates) {
+        const fileExists = fs.existsSync(update.absolutePath);
+        let currentContent = '';
+
+        if (fileExists) {
+            try {
+                currentContent = fs.readFileSync(update.absolutePath, 'utf8');
+            } catch (error) {
+                warnings.push(`Skipped ${update.relativePath} because it could not be read: ${error.message}`);
+                skippedCount += 1;
+                continue;
+            }
+        }
+
+        if (currentContent.length > MAX_DIRECT_REWRITE_CHARS) {
+            warnings.push(`Skipped ${update.relativePath} because file is too large for direct rewrite.`);
+            skippedCount += 1;
+            continue;
+        }
+
+        rewriteInputs.push({
+            update,
+            fileExists,
+            currentContent,
+            rewritePrompt: buildSingleFileRewritePrompt({
+                filePath: update.relativePath,
+                instructions: update.instructions,
+                currentContent,
+                fileExists,
+                languageHint: detectFileLanguageFromPath(update.relativePath),
+                forceConcreteDiff: false
+            })
+        });
+    }
+
+    const rewriteResults = await mapWithConcurrency(rewriteInputs, DIRECT_REWRITE_CONCURRENCY, async (input) => {
+        try {
+            const languageHint = detectFileLanguageFromPath(input.update.relativePath);
+            let nonEmptyResponseSeen = false;
+
+            for (let attempt = 1; attempt <= DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS; attempt += 1) {
+                const rewritePrompt = attempt === 1
+                    ? input.rewritePrompt
+                    : buildSingleFileRewritePrompt({
+                        filePath: input.update.relativePath,
+                        instructions: input.update.instructions,
+                        currentContent: input.currentContent,
+                        fileExists: input.fileExists,
+                        languageHint,
+                        forceConcreteDiff: true
+                    });
+
+                const rewriteAnswer = await generateContent(rewritePrompt, {
+                    maxRetries: DIRECT_REWRITE_MAX_RETRIES,
+                    retryDelay: DIRECT_REWRITE_RETRY_DELAY_MS
+                });
+                let rewrittenContent = extractUpdatedFileTextFromResponse(rewriteAnswer);
+
+                if (!rewrittenContent || rewrittenContent.trim().length === 0) {
+                    continue;
+                }
+
+                nonEmptyResponseSeen = true;
+
+                if (!rewrittenContent.endsWith('\n')) {
+                    rewrittenContent += '\n';
+                }
+
+                if (rewrittenContent !== input.currentContent) {
+                    return {
+                        ...input,
+                        rewrittenContent,
+                        rewriteAttempts: attempt
+                    };
+                }
+            }
+
+            if (input.update.instructions.length > 0) {
+                const fallbackContent = buildGuaranteedDiffFallbackContent({
+                    currentContent: input.currentContent,
+                    instructions: input.update.instructions,
+                    languageHint
+                });
+                if (fallbackContent !== input.currentContent) {
+                    return {
+                        ...input,
+                        rewrittenContent: fallbackContent,
+                        rewriteAttempts: DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS + 1,
+                        forcedFallback: true,
+                        fallbackReason: nonEmptyResponseSeen
+                            ? 'Gemini returned unchanged output'
+                            : 'Gemini returned empty output'
+                    };
+                }
+            }
+
+            return {
+                ...input,
+                error: nonEmptyResponseSeen
+                    ? `Gemini returned unchanged content for ${input.update.relativePath}.`
+                    : `Gemini returned empty content for ${input.update.relativePath}.`
+            };
+        } catch (error) {
+            const languageHint = detectFileLanguageFromPath(input.update.relativePath);
+            if (input.update.instructions.length > 0) {
+                const fallbackContent = buildGuaranteedDiffFallbackContent({
+                    currentContent: input.currentContent,
+                    instructions: input.update.instructions,
+                    languageHint
+                });
+                if (fallbackContent !== input.currentContent) {
+                    return {
+                        ...input,
+                        rewrittenContent: fallbackContent,
+                        rewriteAttempts: DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS + 1,
+                        forcedFallback: true,
+                        fallbackReason: `Gemini error: ${error.message}`
+                    };
+                }
+            }
+
+            return {
+                ...input,
+                error: `Gemini rewrite failed for ${input.update.relativePath}: ${error.message}`
+            };
+        }
+    });
+
+    // Persist sequentially to avoid vector store mutation races.
+    for (const result of rewriteResults) {
+        if (result.error) {
+            warnings.push(result.error);
+            skippedCount += 1;
+            continue;
+        }
+
+        const beforeBytes = Buffer.byteLength(result.currentContent, 'utf8');
+        const afterBytes = Buffer.byteLength(result.rewrittenContent, 'utf8');
+        const changed = result.rewrittenContent !== result.currentContent;
+
+        if (changed) {
+            try {
+                fs.mkdirSync(path.dirname(result.update.absolutePath), { recursive: true });
+                fs.writeFileSync(result.update.absolutePath, result.rewrittenContent, 'utf8');
+                await vectorStore.updateFile(result.update.relativePath, result.rewrittenContent);
+            } catch (error) {
+                warnings.push(`Failed to persist rewrite for ${result.update.relativePath}: ${error.message}`);
+                skippedCount += 1;
+                continue;
+            }
+            appliedCount += 1;
+        }
+
+        if (result.forcedFallback) {
+            warnings.push(`${result.fallbackReason || 'Gemini output was unusable'} for ${result.update.relativePath}; applied guaranteed fallback diff.`);
+        }
+
+        changedFiles.push({
+            filePath: result.update.relativePath,
+            absolutePath: result.update.absolutePath,
+            action: result.fileExists ? 'updated' : 'created',
+            changed,
+            bytesBefore: beforeBytes,
+            bytesAfter: afterBytes,
+            instructions: result.update.instructions,
+            rewriteAttempts: result.rewriteAttempts || 1,
+            forcedFallback: Boolean(result.forcedFallback)
+        });
+
+        plan.push({
+            id: `direct-edit-${plan.length + 1}`,
+            type: result.fileExists ? 'update_file_goal' : 'create_file',
+            filePath: result.fileExists ? result.update.relativePath : '',
+            fromPath: '',
+            toPath: result.fileExists ? '' : result.update.relativePath,
+            importFrom: '',
+            importTo: '',
+            symbol: '',
+            reason: `Applied instruction(s) to ${result.update.relativePath}: ${result.update.instructions.join(' | ')}`.slice(0, 600),
+            confidence: changed ? (result.forcedFallback ? 0.65 : 0.9) : 0.55
+        });
+    }
+
+    return {
+        warnings,
+        changedFiles,
+        plan,
+        appliedCount,
+        skippedCount
+    };
+}
+
 function normalizeVisualGraphPayload(visualGraph) {
     const warnings = [];
     const nodeMap = new Map();
@@ -999,8 +1474,16 @@ function buildBlueprintPath(label, fallbackId) {
 /**
  * Compare user-modified visual graph against AST graph and produce refactor plan.
  */
-async function generateRefactorPlanFromVisualGraph({ visualGraph }) {
-    const graph = vectorStore.getDependencyGraph();
+async function generateRefactorPlanFromVisualGraph({ visualGraph, dirtyNodeIds }, options = {}) {
+    const profiler = createStepProfiler('refactor_to_design.visual_graph', {
+        requestId: options.requestId || `req-${Date.now()}`,
+        model: config.models.generative
+    });
+    const selectedNodeIds = Array.isArray(dirtyNodeIds)
+        ? Array.from(new Set(dirtyNodeIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim())))
+        : null;
+
+    const graph = await profiler.step('graph_retrieval', async () => vectorStore.getDependencyGraph());
     const files = graph.nodes || [];
     const currentEdges = graph.edges || [];
 
@@ -1019,263 +1502,168 @@ async function generateRefactorPlanFromVisualGraph({ visualGraph }) {
                 mappingCoverage: 0,
                 actualGoalCount: 0,
                 blueprintGoalCount: 0
-            }
+            },
+            profiling: profiler.finish({
+                status: 'no_index',
+                filesInGraph: 0,
+                currentEdgesInGraph: 0
+            })
         };
     }
 
-    const normalizedVisual = normalizeVisualGraphPayload(visualGraph);
-    const nodeById = new Map(normalizedVisual.nodes.map(node => [node.id, node]));
-    const knownPaths = new Set(files.map(file => file.fullPath));
-    const currentEdgeSet = new Set(currentEdges.map(edge => `${edge.source}=>${edge.target}`));
-
-    const unresolvedActualNodes = normalizedVisual.nodes
-        .filter(node => node.kind === 'actual' && node.path && !knownPaths.has(node.path))
-        .map(node => ({ id: node.id, path: node.path, label: node.label }));
-
-    const desiredActualEdges = [];
-    const blueprintEdges = [];
-
-    for (const edge of normalizedVisual.edges) {
-        const sourceNode = nodeById.get(edge.source);
-        const targetNode = nodeById.get(edge.target);
-        if (!sourceNode || !targetNode) continue;
-
-        const isActualToActual = sourceNode.kind === 'actual'
-            && targetNode.kind === 'actual'
-            && sourceNode.path
-            && targetNode.path
-            && knownPaths.has(sourceNode.path)
-            && knownPaths.has(targetNode.path);
-
-        if (isActualToActual) {
-            desiredActualEdges.push({
-                source: sourceNode.path,
-                target: targetNode.path,
-                label: edge.label
-            });
-            continue;
-        }
-
-        blueprintEdges.push({
-            sourceId: sourceNode.id,
-            sourceKind: sourceNode.kind,
-            sourcePath: sourceNode.path,
-            sourceLabel: sourceNode.label,
-            targetId: targetNode.id,
-            targetKind: targetNode.kind,
-            targetPath: targetNode.path,
-            targetLabel: targetNode.label,
-            edgeLabel: edge.label
-        });
-    }
-
-    const desiredEdgeSet = new Set(desiredActualEdges.map(edge => `${edge.source}=>${edge.target}`));
-    const addedEdges = [...desiredEdgeSet]
-        .filter(key => !currentEdgeSet.has(key))
-        .map((key) => {
-            const [source, target] = key.split('=>');
-            return { source, target };
-        });
-
-    const removedEdges = [...currentEdgeSet]
-        .filter(key => !desiredEdgeSet.has(key))
-        .map((key) => {
-            const [source, target] = key.split('=>');
-            return { source, target };
-        });
-
-    const actualGoalNodes = normalizedVisual.nodes
-        .filter(node => node.kind === 'actual' && node.goal && node.path && knownPaths.has(node.path))
-        .map(node => ({ path: node.path, goal: node.goal, label: node.label }));
-
-    const blueprintGoalNodes = normalizedVisual.nodes
-        .filter(node => node.kind === 'blueprint' && node.goal)
-        .map(node => ({ id: node.id, label: node.label, goal: node.goal }));
-
-    const mappingCoverage = normalizedVisual.edges.length > 0
-        ? desiredActualEdges.length / normalizedVisual.edges.length
-        : 1;
-
-    const maxFilesForPrompt = 600;
-    const maxCurrentEdgesForPrompt = 1200;
-    const maxVisualNodesForPrompt = 600;
-    const maxVisualEdgesForPrompt = 1200;
-
-    const fileCatalog = files.slice(0, maxFilesForPrompt).map(node => ({
-        fullPath: node.fullPath,
-        label: node.label,
-        language: node.language
-    }));
-
-    const currentEdgesForPrompt = currentEdges.slice(0, maxCurrentEdgesForPrompt);
-    const visualNodesForPrompt = normalizedVisual.nodes.slice(0, maxVisualNodesForPrompt).map(node => ({
-        id: node.id,
-        kind: node.kind,
-        path: node.path,
-        label: node.label,
-        goal: node.goal
-    }));
-    const visualEdgesForPrompt = normalizedVisual.edges.slice(0, maxVisualEdgesForPrompt);
-
-    const systemArchitectPrompt = `You are CodeSensei System Architect. Convert a modified visual graph into a concrete, minimal refactor plan.
-
-Interpretation rules:
-1. If user draws arrow Actual(A) -> Actual(B), then A should depend on B. Usually this means add or update import in A referencing B.
-2. If an existing Actual(A) -> Actual(B) edge is removed in the visual graph, then dependency should likely be removed (delete import if unused).
-3. A goal text inside an Actual node is a direct refactor objective for that existing file.
-4. A Blueprint node is a proposed module/component that may not exist in code yet. Propose creating files/modules and rewiring dependencies.
-5. If confidence is low or mapping is ambiguous, output manual_review and include clarifying questions.
-
-Output JSON only (no markdown):
-{
-  "summary": "string",
-  "plan": [
-    {
-      "id": "string",
-      "type": "change_import|delete_import|move_file|create_file|create_module|extract_module|rename_symbol|update_file_goal|add_dependency|remove_dependency|manual_review",
-      "filePath": "existing/file/path.js",
-      "fromPath": "existing/file/path.js",
-      "toPath": "new/or/existing/path.js",
-      "importFrom": "existing/file/path.js",
-      "importTo": "existing/or/new/path.js",
-      "symbol": "optional symbol",
-      "reason": "single sentence with why",
-      "confidence": 0.0
-    }
-  ],
-  "warnings": ["string"],
-  "questions": ["string"]
-}
-
-Hard constraints:
-- For existing-file operations, use only paths present in FILE_CATALOG.
-- Keep actions atomic and executable.
-- Prefer explicit dependency edits over broad rewrites.
-- confidence in [0,1].
-
-FILE_CATALOG:
-${JSON.stringify(fileCatalog, null, 2)}
-
-CURRENT_AST_EDGES:
-${JSON.stringify(currentEdgesForPrompt, null, 2)}
-
-VISUAL_GRAPH_NODES:
-${JSON.stringify(visualNodesForPrompt, null, 2)}
-
-VISUAL_GRAPH_EDGES:
-${JSON.stringify(visualEdgesForPrompt, null, 2)}
-
-DETERMINISTIC_DIFF_HINTS:
-${JSON.stringify({
+    const {
+        normalizedVisual,
+        knownPaths,
+        unresolvedActualNodes,
+        desiredActualEdges,
         addedEdges,
         removedEdges,
-        actualGoalNodes: actualGoalNodes.slice(0, 80),
-        blueprintGoalNodes: blueprintGoalNodes.slice(0, 80),
-        blueprintEdges: blueprintEdges.slice(0, 120),
-        unresolvedActualNodes: unresolvedActualNodes.slice(0, 80),
-        mappingCoverage: Number(mappingCoverage.toFixed(3))
-    }, null, 2)}
-
-Return final JSON only.`;
-
-    const llmAnswer = await generateContent(systemArchitectPrompt);
-    const parsedPlan = extractJsonFromResponse(llmAnswer);
-    const normalizedPlan = normalizeRefactorPlan(parsedPlan, knownPaths);
-
-    normalizedVisual.warnings.forEach((warning) => normalizedPlan.warnings.push(warning));
-
-    if (normalizedPlan.plan.length === 0) {
-        addedEdges.slice(0, 16).forEach((edge, index) => {
-            normalizedPlan.plan.push({
-                id: `edge-add-${index + 1}`,
-                type: 'change_import',
-                filePath: edge.source,
-                fromPath: '',
-                toPath: '',
-                importFrom: edge.target,
-                importTo: '',
-                symbol: '',
-                reason: `User drew a dependency from ${edge.source} to ${edge.target}.`,
-                confidence: 0.72
-            });
+        actualGoalNodes,
+        blueprintGoalNodes,
+        mappingCoverage
+    } = await profiler.step('graph_analysis', async () => {
+        const normalizedVisualGraph = normalizeVisualGraphPayload(visualGraph);
+        normalizedVisualGraph.nodes.forEach((node) => {
+            node.path = normalizeRepoPath(node.path);
         });
 
-        removedEdges.slice(0, 16).forEach((edge, index) => {
-            normalizedPlan.plan.push({
-                id: `edge-remove-${index + 1}`,
-                type: 'delete_import',
-                filePath: edge.source,
-                fromPath: '',
-                toPath: '',
-                importFrom: edge.target,
-                importTo: '',
-                symbol: '',
-                reason: `User removed dependency from ${edge.source} to ${edge.target}.`,
-                confidence: 0.7
-            });
-        });
+        const nodeById = new Map(normalizedVisualGraph.nodes.map(node => [node.id, node]));
+        const selectedNodeIdSet = selectedNodeIds ? new Set(selectedNodeIds) : null;
+        const isNodeSelected = (node) => !selectedNodeIdSet || selectedNodeIdSet.has(node.id);
+        const knownFilePaths = new Set(files.map(file => normalizeRepoPath(file.fullPath)));
+        const normalizedCurrentEdges = currentEdges.map((edge) => ({
+            source: normalizeRepoPath(edge.source),
+            target: normalizeRepoPath(edge.target)
+        }));
+        const currentEdgeSet = new Set(normalizedCurrentEdges.map(edge => `${edge.source}=>${edge.target}`));
 
-        actualGoalNodes.slice(0, 16).forEach((goalNode, index) => {
-            normalizedPlan.plan.push({
-                id: `goal-actual-${index + 1}`,
-                type: 'update_file_goal',
-                filePath: goalNode.path,
-                fromPath: '',
-                toPath: '',
-                importFrom: '',
-                importTo: '',
-                symbol: '',
-                reason: `Goal for ${goalNode.path}: ${goalNode.goal}`,
-                confidence: 0.62
-            });
-        });
+        const unresolvedActualNodes = normalizedVisualGraph.nodes
+            .filter(node => isNodeSelected(node) && node.kind === 'actual' && node.path && !knownFilePaths.has(node.path))
+            .map(node => ({ id: node.id, path: node.path, label: node.label }));
 
-        blueprintGoalNodes.slice(0, 16).forEach((goalNode, index) => {
-            normalizedPlan.plan.push({
-                id: `goal-blueprint-${index + 1}`,
-                type: 'create_module',
-                filePath: '',
-                fromPath: '',
-                toPath: buildBlueprintPath(goalNode.label, goalNode.id),
-                importFrom: '',
-                importTo: '',
-                symbol: '',
-                reason: `Create blueprint module "${goalNode.label}" to satisfy goal: ${goalNode.goal}`,
-                confidence: 0.58
-            });
-        });
-    }
+        const desiredActualEdges = [];
+        const blueprintEdges = [];
 
-    if (!normalizedPlan.summary) {
-        normalizedPlan.summary = `Generated ${normalizedPlan.plan.length} candidate change(s) from interactive architecture graph.`;
-    }
+        for (const edge of normalizedVisualGraph.edges) {
+            const sourceNode = nodeById.get(edge.source);
+            const targetNode = nodeById.get(edge.target);
+            if (!sourceNode || !targetNode) continue;
+
+            const isActualToActual = sourceNode.kind === 'actual'
+                && targetNode.kind === 'actual'
+                && sourceNode.path
+                && targetNode.path
+                && knownFilePaths.has(sourceNode.path)
+                && knownFilePaths.has(targetNode.path);
+
+            if (isActualToActual) {
+                desiredActualEdges.push({
+                    source: sourceNode.path,
+                    target: targetNode.path,
+                    label: edge.label
+                });
+                continue;
+            }
+
+            blueprintEdges.push({
+                sourceId: sourceNode.id,
+                sourceKind: sourceNode.kind,
+                sourcePath: sourceNode.path,
+                sourceLabel: sourceNode.label,
+                targetId: targetNode.id,
+                targetKind: targetNode.kind,
+                targetPath: targetNode.path,
+                targetLabel: targetNode.label,
+                edgeLabel: edge.label
+            });
+        }
+
+        const desiredEdgeSet = new Set(desiredActualEdges.map(edge => `${edge.source}=>${edge.target}`));
+        const addedEdges = [...desiredEdgeSet]
+            .filter(key => !currentEdgeSet.has(key))
+            .map((key) => {
+                const [source, target] = key.split('=>');
+                return { source, target };
+            });
+
+        const removedEdges = [...currentEdgeSet]
+            .filter(key => !desiredEdgeSet.has(key))
+            .map((key) => {
+                const [source, target] = key.split('=>');
+                return { source, target };
+            });
+
+        const actualGoalNodes = normalizedVisualGraph.nodes
+            .filter(node => isNodeSelected(node) && node.kind === 'actual' && node.goal && node.path && knownFilePaths.has(node.path))
+            .map(node => ({ path: node.path, goal: node.goal, label: node.label }));
+
+        const blueprintGoalNodes = normalizedVisualGraph.nodes
+            .filter(node => isNodeSelected(node) && node.kind === 'blueprint' && node.goal)
+            .map(node => ({ id: node.id, label: node.label, goal: node.goal }));
+
+        const mappingCoverage = normalizedVisualGraph.edges.length > 0
+            ? desiredActualEdges.length / normalizedVisualGraph.edges.length
+            : 1;
+
+        return {
+            normalizedVisual: normalizedVisualGraph,
+            knownPaths: knownFilePaths,
+            unresolvedActualNodes,
+            desiredActualEdges,
+            addedEdges,
+            removedEdges,
+            actualGoalNodes,
+            blueprintGoalNodes,
+            mappingCoverage,
+            selectedNodeCount: selectedNodeIds ? selectedNodeIds.length : null
+        };
+    }, {
+        filesInGraph: files.length,
+        currentEdgesInGraph: currentEdges.length,
+        visualNodesInPayload: Array.isArray(visualGraph?.nodes) ? visualGraph.nodes.length : 0,
+        visualEdgesInPayload: Array.isArray(visualGraph?.edges) ? visualGraph.edges.length : 0,
+        selectedNodeCount: selectedNodeIds ? selectedNodeIds.length : null
+    });
+
+    const applyResult = await profiler.step('apply_instructions', async () => applyDirectEditsFromVisualGraph({
+        normalizedVisual,
+        knownPaths,
+        dirtyNodeIds: selectedNodeIds
+    }), {
+        actualGoalCount: actualGoalNodes.length,
+        blueprintGoalCount: blueprintGoalNodes.length
+    });
+
+    const warnings = [];
+    normalizedVisual.warnings.forEach((warning) => warnings.push(warning));
+    applyResult.warnings.forEach((warning) => warnings.push(warning));
 
     if (mappingCoverage < 0.6) {
-        normalizedPlan.warnings.push('Low mapping coverage between visual edges and concrete files. Ensure Actual nodes keep valid file paths.');
+        warnings.push('Low mapping coverage between visual edges and concrete files. Ensure Actual nodes keep valid file paths.');
     }
 
     if (unresolvedActualNodes.length > 0) {
-        normalizedPlan.warnings.push(`${unresolvedActualNodes.length} Actual node(s) referenced unknown file paths.`);
+        warnings.push(`${unresolvedActualNodes.length} Actual node(s) referenced unknown file paths.`);
     }
 
-    if (files.length > fileCatalog.length) {
-        normalizedPlan.warnings.push(`Prompt context truncated to ${fileCatalog.length} files out of ${files.length}.`);
+    const totalGoalNodes = actualGoalNodes.length + blueprintGoalNodes.length;
+    let summary = 'No node instructions were provided.';
+    if (selectedNodeIds && selectedNodeIds.length === 0) {
+        summary = 'No edited nodes were selected for commit.';
     }
-
-    if (currentEdges.length > currentEdgesForPrompt.length) {
-        normalizedPlan.warnings.push(`Prompt context truncated to ${currentEdgesForPrompt.length} edges out of ${currentEdges.length}.`);
-    }
-
-    if (normalizedVisual.nodes.length > visualNodesForPrompt.length) {
-        normalizedPlan.warnings.push(`Prompt context truncated to ${visualNodesForPrompt.length} visual nodes out of ${normalizedVisual.nodes.length}.`);
-    }
-
-    if (normalizedVisual.edges.length > visualEdgesForPrompt.length) {
-        normalizedPlan.warnings.push(`Prompt context truncated to ${visualEdgesForPrompt.length} visual edges out of ${normalizedVisual.edges.length}.`);
+    if (totalGoalNodes > 0) {
+        summary = applyResult.appliedCount > 0
+            ? `Applied architecture instructions to ${applyResult.appliedCount} file(s).`
+            : 'No files were changed from current architecture instructions.';
     }
 
     return {
-        ...normalizedPlan,
+        summary,
+        applied: applyResult.appliedCount > 0,
+        plan: applyResult.plan,
+        warnings,
+        questions: [],
+        changedFiles: applyResult.changedFiles,
         comparison: {
             currentEdgeCount: currentEdges.length,
             desiredEdgeCount: normalizedVisual.edges.length,
@@ -1284,8 +1672,19 @@ Return final JSON only.`;
             removedEdges,
             mappingCoverage: Number(mappingCoverage.toFixed(3)),
             actualGoalCount: actualGoalNodes.length,
-            blueprintGoalCount: blueprintGoalNodes.length
-        }
+            blueprintGoalCount: blueprintGoalNodes.length,
+            appliedCount: applyResult.appliedCount,
+            skippedCount: applyResult.skippedCount
+        },
+        profiling: profiler.finish({
+            filesInGraph: files.length,
+            currentEdgesInGraph: currentEdges.length,
+            visualNodeCount: normalizedVisual.nodes.length,
+            visualEdgeCount: normalizedVisual.edges.length,
+            totalGoalNodes,
+            appliedCount: applyResult.appliedCount,
+            skippedCount: applyResult.skippedCount
+        })
     };
 }
 

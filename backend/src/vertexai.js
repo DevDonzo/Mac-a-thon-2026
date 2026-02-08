@@ -57,6 +57,7 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
     }
 
     try {
+        const startedAt = Date.now();
         const auth = new GoogleAuth({
             scopes: 'https://www.googleapis.com/auth/cloud-platform'
         });
@@ -69,6 +70,14 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
 
         const embeddings = [];
         const batchSize = 20; // Increased from 5 to 20 for faster indexing
+        const totalBatches = Math.ceil(texts.length / batchSize);
+
+        logger.info('Embedding generation started', {
+            taskType,
+            textCount: texts.length,
+            batchSize,
+            totalBatches
+        });
 
         for (let i = 0; i < texts.length; i += batchSize) {
             const batch = texts.slice(i, i + batchSize);
@@ -76,6 +85,8 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
                 content: text.slice(0, 8000),
                 task_type: taskType
             }));
+            const batchNumber = Math.floor(i / batchSize) + 1;
+            const batchStart = Date.now();
 
             try {
                 const response = await axios.post(url, { instances }, {
@@ -89,6 +100,11 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
                 if (response.data && response.data.predictions) {
                     response.data.predictions.forEach(p => {
                         embeddings.push(p.embeddings.values);
+                    });
+                    logger.info('Embedding batch complete', {
+                        batch: `${batchNumber}/${totalBatches}`,
+                        batchSize: batch.length,
+                        durationMs: Date.now() - batchStart
                     });
                 } else {
                     logger.warn('Batch response missing predictions, using fallback');
@@ -104,6 +120,13 @@ async function generateEmbeddings(texts, taskType = 'RETRIEVAL_DOCUMENT') {
                 await new Promise(r => setTimeout(r, 50));
             }
         }
+
+        logger.info('Embedding generation finished', {
+            taskType,
+            textCount: texts.length,
+            embeddingsCount: embeddings.length,
+            totalMs: Date.now() - startedAt
+        });
 
         return embeddings;
     } catch (error) {
@@ -153,6 +176,60 @@ function cosineSimilarity(a, b) {
     return denominator > 0 ? dotProduct / denominator : 0;
 }
 
+function extractHttpStatusCode(error) {
+    const statusCandidates = [
+        error?.status,
+        error?.statusCode,
+        error?.response?.status,
+        error?.cause?.status,
+        error?.cause?.statusCode
+    ];
+
+    for (const candidate of statusCandidates) {
+        const parsed = Number.parseInt(candidate, 10);
+        if (Number.isFinite(parsed) && parsed >= 100 && parsed <= 599) {
+            return parsed;
+        }
+    }
+
+    if (typeof error?.code === 'number' && error.code >= 100 && error.code <= 599) {
+        return error.code;
+    }
+
+    const message = String(error?.message || '');
+    const statusMatch = message.match(/status:\s*(\d{3})/i);
+    if (statusMatch) {
+        return Number.parseInt(statusMatch[1], 10);
+    }
+
+    return null;
+}
+
+function isRetryableGenerationError(error, statusCode = null) {
+    if (statusCode !== null) {
+        if (statusCode >= 500) return true;
+        return statusCode === 429 || statusCode === 408 || statusCode === 409;
+    }
+
+    if (typeof error?.code === 'number' && error.code > 0 && error.code < 20) {
+        return [4, 8, 10, 13, 14].includes(error.code);
+    }
+
+    const code = String(error?.code || '').toUpperCase();
+    if (['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
+        return true;
+    }
+
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('429')
+        || message.includes('rate limit')
+        || message.includes('quota')
+        || message.includes('timeout')
+        || message.includes('timed out')
+        || message.includes('unavailable')
+        || message.includes('resource exhausted');
+}
+
 /**
  * Query the generative model
  */
@@ -162,9 +239,9 @@ async function generateContent(prompt, options = {}) {
     }
 
     const { maxRetries = 5, retryDelay = 5000 } = options;
-    let lastError = null;
+    const maxAttempts = Number.isFinite(maxRetries) && maxRetries > 0 ? Math.floor(maxRetries) : 1;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             const result = await generativeModel.generateContent(prompt);
             const response = await result.response;
@@ -176,21 +253,35 @@ async function generateContent(prompt, options = {}) {
 
             throw new Error('No valid response text returned from Gemini');
         } catch (error) {
-            lastError = error;
-            const isRateLimit = error.message.includes('429') || error.message.includes('Quota');
+            const statusCode = extractHttpStatusCode(error);
+            const retryable = isRetryableGenerationError(error, statusCode);
 
-            if (isRateLimit) {
-                logger.warn(`Rate limit hit (429), attempt ${attempt}/${maxRetries}. Retrying in ${retryDelay * attempt}ms...`);
-            } else {
-                logger.warn(`Generation attempt ${attempt} failed`, { error: error.message });
+            if (!retryable) {
+                logger.error('Generation failed with non-retryable error', {
+                    attempt,
+                    statusCode,
+                    error: error.message
+                });
+                throw error;
             }
 
-            if (attempt === maxRetries) {
+            if (attempt === maxAttempts) {
+                logger.error('Generation retries exhausted', {
+                    attempt,
+                    maxAttempts,
+                    statusCode,
+                    error: error.message
+                });
                 throw error;
             }
 
             // Exponential backoff with jitter
             const backoff = retryDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            logger.warn(`Generation attempt ${attempt}/${maxAttempts} failed; retrying`, {
+                statusCode,
+                retryInMs: Math.round(backoff),
+                error: error.message
+            });
             await new Promise(r => setTimeout(r, backoff));
         }
     }
