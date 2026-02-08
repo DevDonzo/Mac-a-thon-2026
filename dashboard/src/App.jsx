@@ -1,9 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './App.css';
 import ForceGraph2D from 'react-force-graph-2d';
-import mermaid from 'mermaid';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  Panel,
+  addEdge,
+  useNodesState,
+  useEdgesState,
+  MarkerType,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import ReactMarkdown from 'react-markdown';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import {
   Activity,
   MessageSquare,
@@ -16,9 +28,7 @@ import {
   Search,
   Cpu,
   Shield,
-  Zap,
   Code,
-  Terminal,
   ArrowRight,
   PanelRightOpen,
   PanelRightClose,
@@ -26,36 +36,6 @@ import {
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000';
-
-mermaid.initialize({
-  startOnLoad: true,
-  theme: 'base',
-  securityLevel: 'loose',
-  flowchart: {
-    curve: 'basis',
-    htmlLabels: true,
-    useMaxWidth: true,
-    nodeSpacing: 100,
-    rankSpacing: 120,
-    padding: 40,
-    wrappingWidth: 300,
-  },
-  themeVariables: {
-    primaryColor: '#18181b',
-    primaryTextColor: '#fafafa',
-    primaryBorderColor: '#3f3f46',
-    lineColor: '#52525b',
-    secondaryColor: '#0f0f12',
-    tertiaryColor: '#18181b',
-    fontSize: '13px',
-    fontFamily: 'Inter, system-ui, sans-serif',
-    nodeBorder: '#3f3f46',
-    mainBkg: '#18181b',
-    textColor: '#fafafa',
-    clusterBkg: 'rgba(39,39,42,0.4)',
-    clusterBorder: '#3f3f46',
-  },
-});
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -128,7 +108,7 @@ function App() {
           </div>
 
           <div className="nav-section">
-            <div className="nav-section-title">Analysis</div>
+            <div className="nav-section-title">Builder</div>
             <NavItem
               icon={<Layers size={18} />}
               label="Architecture"
@@ -265,7 +245,7 @@ function OverviewPage({ stats, status, loading, mentorMode }) {
 
       // Refresh page after 2 seconds
       setTimeout(() => window.location.reload(), 2000);
-    } catch (error) {
+    } catch {
       setIndexResult('error');
     } finally {
       setIndexing(false);
@@ -492,32 +472,16 @@ function RAGPlaygroundPage({ mentorMode, status }) {
     setLoading(true);
     setRetrievalSteps([]);
 
-    // Visual feedback steps
-    const steps = [
-      { label: 'Analyzing Intent', icon: <Search size={14} /> },
-      { label: 'Scanning Codebase', icon: <Terminal size={14} /> },
-      { label: 'Reading Context', icon: <Code size={14} /> },
-      { label: 'Synthesizing Response', icon: <Zap size={14} /> },
-    ];
-
     try {
-      // Parallel simulated steps for UI while waiting
-      for (let i = 0; i < steps.length; i++) {
-        setRetrievalSteps(prev => [...prev, { ...steps[i], status: 'active' }]);
-        await new Promise(r => setTimeout(r, 400));
-        setRetrievalSteps(prev => {
-          const copy = [...prev];
-          copy[i].status = 'complete';
-          return copy;
-        });
-      }
-
       const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userMsg.content,
-          context: newHistory.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n'),
+          context: [{
+            path: 'conversation',
+            content: newHistory.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n')
+          }],
           mentorMode,
           threadId // Pass threadId for memory
         })
@@ -529,6 +493,10 @@ function RAGPlaygroundPage({ mentorMode, status }) {
       }
 
       const data = await res.json();
+
+      if (data?.metadata?.retrievalSteps?.length) {
+        setRetrievalSteps(data.metadata.retrievalSteps);
+      }
 
       // Sync threadId if backend auto-created it
       if (data.threadId && data.threadId !== threadId) {
@@ -618,7 +586,7 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                   <div className="message-content">
                     <ReactMarkdown
                       components={{
-                        code({ node, className, children, ...props }) {
+                        code({ node, children, ...props }) {
                           const isBlock = node?.position?.start?.line !== node?.position?.end?.line
                             || String(children).includes('\n');
                           return isBlock ? (
@@ -640,14 +608,23 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                     </ReactMarkdown>
                   </div>
 
-                  {msg.sources && msg.sources.length > 0 && (
+                  {msg.sources && msg.sources.length > 0 && (() => {
+                    const deduped = [];
+                    const seen = new Set();
+                    for (const src of msg.sources) {
+                      const relPath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
+                      if (!seen.has(relPath)) {
+                        seen.add(relPath);
+                        deduped.push({ ...src, relPath });
+                      }
+                    }
+                    return (
                     <div className="sources-grid">
-                      {msg.sources.map((src, idx) => {
+                      {deduped.map((src, idx) => {
                         const wsPath = msg.workspacePath || status?.workspace || '/Users/hparacha/Projects/Mac-a-thon-2026';
-                        const relPath = src.path.startsWith('/') ? src.path.slice(1) : src.path;
-                        const fullPath = `${wsPath}/${relPath}`;
-                        const fileName = relPath.split('/').pop();
-                        const dirPath = relPath.split('/').slice(0, -1).join('/');
+                        const fullPath = `${wsPath}/${src.relPath}`;
+                        const fileName = src.relPath.split('/').pop();
+                        const dirPath = src.relPath.split('/').slice(0, -1).join('/');
 
                         return (
                           <a
@@ -658,12 +635,33 @@ function RAGPlaygroundPage({ mentorMode, status }) {
                           >
                             <div className="mini-source-path">📄 {fileName}</div>
                             <div className="mini-source-lines">
-                              {dirPath && <span>{dirPath} · </span>}
-                              Lines {src.lines}
+                              {dirPath && <span>{dirPath}</span>}
                             </div>
                           </a>
                         );
                       })}
+                    </div>
+                    );
+                  })()}
+
+                  {msg.metadata?.retrievalSteps && msg.metadata.retrievalSteps.length > 0 && (
+                    <div className="evidence-steps">
+                      <div className="evidence-title">
+                        <Search size={14} />
+                        <span>Evidence Trail</span>
+                      </div>
+                      <ul className="evidence-list">
+                        {msg.metadata.retrievalSteps.map((step, idx) => (
+                          <li key={idx}>
+                            <span className="evidence-step">
+                              {step.step.replace(/_/g, ' ')}
+                            </span>
+                            <span className="evidence-meta">
+                              {typeof step.timestamp === 'number' ? `${step.timestamp}ms` : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
@@ -683,10 +681,10 @@ function RAGPlaygroundPage({ mentorMode, status }) {
               </div>
             ))}
 
-            {loading && retrievalSteps.length > 0 && (
+            {loading && (
               <div className="retrieval-indicator">
                 <div className="step-spinner" />
-                <span>{retrievalSteps.findLast(s => s.status === 'active')?.label || 'Thinking...'}</span>
+                <span>Thinking...</span>
               </div>
             )}
 
@@ -756,7 +754,18 @@ function CodeDNAPage() {
   const [loading, setLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [showSymbols, setShowSymbols] = useState(false);
+  const [graphWidth, setGraphWidth] = useState(800);
   const containerRef = useRef(null);
+
+  const getSymbolColor = (type) => {
+    const colors = {
+      'function': '#e5e5e5',
+      'class': '#a0a0a0',
+      'variable': '#777777',
+      'const': '#d5d5d5'
+    };
+    return colors[type] || '#5a5a5a';
+  };
 
   const loadGraph = async () => {
     setLoading(true);
@@ -805,18 +814,22 @@ function CodeDNAPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGraph();
   }, [showSymbols]);
 
-  const getSymbolColor = (type) => {
-    const colors = {
-      'function': '#3b82f6', // Blue
-      'class': '#8b5cf6',    // Purple
-      'variable': '#10b981', // Green
-      'const': '#f59e0b'     // Amber
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setGraphWidth(containerRef.current.clientWidth || 800);
+      }
     };
-    return colors[type] || '#6b7280';
-  };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>
@@ -851,21 +864,21 @@ function CodeDNAPage() {
             <div className="graph-legend-title">Legend</div>
             <div className="graph-legend-items">
               <div className="graph-legend-item">
-                <span className="graph-legend-dot" style={{ background: '#3b82f6' }} />
+                <span className="graph-legend-dot" style={{ background: '#e5e5e5' }} />
                 <span>JavaScript</span>
               </div>
               {showSymbols && (
                 <>
                   <div className="graph-legend-item sub">
-                    <span className="graph-legend-dot sm" style={{ background: '#3b82f6' }} />
+                    <span className="graph-legend-dot sm" style={{ background: '#e5e5e5' }} />
                     <span>Function</span>
                   </div>
                   <div className="graph-legend-item sub">
-                    <span className="graph-legend-dot sm" style={{ background: '#8b5cf6' }} />
+                    <span className="graph-legend-dot sm" style={{ background: '#a0a0a0' }} />
                     <span>Class</span>
                   </div>
                   <div className="graph-legend-item sub">
-                    <span className="graph-legend-dot sm" style={{ background: '#10b981' }} />
+                    <span className="graph-legend-dot sm" style={{ background: '#777777' }} />
                     <span>Variable</span>
                   </div>
                 </>
@@ -875,14 +888,14 @@ function CodeDNAPage() {
 
           {graphData.nodes.length > 0 ? (
             <ForceGraph2D
-              width={containerRef.current ? containerRef.current.clientWidth : 800}
+              width={graphWidth}
               height={600}
               graphData={graphData}
               nodeLabel={(node) => `${node.label || node.name}\n${node.type === 'file' ? `${node.symbolCount || 0} symbols` : ''}`}
               nodeColor="color"
               nodeRelSize={6}
-              linkColor={(link) => link.type === 'contains' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.2)'}
-              backgroundColor="#1a1a1a"
+              linkColor={(link) => link.type === 'contains' ? 'rgba(160, 160, 160, 0.3)' : 'rgba(255,255,255,0.15)'}
+              backgroundColor="#0a0a0a"
               onNodeClick={(node) => setSelectedNode(node)}
               cooldownTicks={100}
               d3AlphaDecay={0.05}
@@ -896,18 +909,16 @@ function CodeDNAPage() {
                 const label = node.label;
                 const fontSize = 12 / globalScale;
                 ctx.font = `${fontSize}px Sans-Serif`;
-                const textWidth = ctx.measureText(label).width;
-                const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
 
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.0)'; // Transparent text background
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
-                ctx.fillStyle = node.color || '#818cf8';
+                ctx.fillStyle = node.color || '#a0a0a0';
                 ctx.fill();
 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#cbd5e1';
+                ctx.fillStyle = '#d5d5d5';
                 if (globalScale > 1.2) { // Only show labels when zoomed in slightly
                   ctx.fillText(label, node.x, node.y + 8);
                 }
@@ -990,63 +1001,524 @@ function CodeDNAPage() {
 }
 
 
-function Mermaid({ chart }) {
-  const ref = useRef(null);
+const ARCHITECTURE_NODE_TYPE = 'architectureNode';
 
-  useEffect(() => {
-    if (chart && ref.current) {
-      ref.current.removeAttribute('data-processed');
-      mermaid.contentLoaded();
+function sanitizeEdgeId(value) {
+  return String(value || 'edge').replace(/[^a-zA-Z0-9-_]/g, '_');
+}
+
+function buildFlowFromAstGraph(astNodes = [], astEdges = []) {
+  const sortedNodes = [...astNodes].sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+  const laneMap = new Map();
+
+  sortedNodes.forEach((node) => {
+    const lane = node.fullPath.includes('/') ? node.fullPath.split('/')[0] : 'root';
+    if (!laneMap.has(lane)) {
+      laneMap.set(lane, []);
     }
-  }, [chart]);
+    laneMap.get(lane).push(node);
+  });
+
+  const flowNodes = [];
+  const lanes = [...laneMap.keys()].sort();
+
+  lanes.forEach((lane, laneIndex) => {
+    const laneNodes = laneMap.get(lane) || [];
+    laneNodes.forEach((node, rowIndex) => {
+      flowNodes.push({
+        id: node.fullPath,
+        type: ARCHITECTURE_NODE_TYPE,
+        position: {
+          x: laneIndex * 340 + (rowIndex % 2) * 12,
+          y: rowIndex * 190,
+        },
+        data: {
+          label: node.label || node.fullPath.split('/').pop(),
+          path: node.fullPath,
+          language: node.language || 'text',
+          kind: 'actual',
+          goal: '',
+          instructions: '',
+          templateId: 'code-file',
+          category: 'Code',
+          icon: 'C',
+        },
+      });
+    });
+  });
+
+  const validNodeIds = new Set(flowNodes.map((node) => node.id));
+  const flowEdges = astEdges
+    .filter((edge) => validNodeIds.has(edge.source) && validNodeIds.has(edge.target))
+    .map((edge, index) => ({
+      id: sanitizeEdgeId(`ast-${index}-${edge.source}-${edge.target}`),
+      source: edge.source,
+      target: edge.target,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+      style: { stroke: '#a0a0a0', strokeWidth: 1.8 },
+      data: { kind: 'actual' },
+    }));
+
+  return { nodes: flowNodes, edges: flowEdges };
+}
+
+const DRAFT_NODE_KIND = 'draft';
+const COMPONENT_LIBRARY_TEMPLATES = [
+  {
+    id: 'blank-component',
+    name: 'Blank Component',
+    icon: 'BL',
+    category: 'Custom',
+    description: 'Start from scratch.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'ui-screen',
+    name: 'UI Screen',
+    icon: 'UI',
+    category: 'Frontend',
+    description: 'User-facing page or screen.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'api-route',
+    name: 'API Route',
+    icon: 'API',
+    category: 'Backend',
+    description: 'HTTP endpoint and request handling.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'service-module',
+    name: 'Service Module',
+    icon: 'SV',
+    category: 'Backend',
+    description: 'Business logic and orchestration.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'auth-module',
+    name: 'Auth Service',
+    icon: 'AU',
+    category: 'Security',
+    description: 'Login, sessions, and permissions.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'worker-module',
+    name: 'Worker',
+    icon: 'WK',
+    category: 'Async',
+    description: 'Background jobs or scheduled tasks.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'database-layer',
+    name: 'Database Layer',
+    icon: 'DB',
+    category: 'Data',
+    description: 'Queries, repositories, and persistence.',
+    defaultInstructions: '',
+  },
+  {
+    id: 'integration-adapter',
+    name: 'Integration',
+    icon: 'INT',
+    category: 'External',
+    description: 'Third-party APIs and adapters.',
+    defaultInstructions: '',
+  },
+];
+
+function getLibraryTemplate(templateId) {
+  return COMPONENT_LIBRARY_TEMPLATES.find((template) => template.id === templateId) || COMPONENT_LIBRARY_TEMPLATES[0];
+}
+
+function createDraftNodeFromTemplate(template, nodes, dropPosition = null) {
+  const draftCount = nodes.filter((node) => node.data?.kind === DRAFT_NODE_KIND).length;
+  const maxY = nodes.reduce((highest, node) => Math.max(highest, node.position?.y || 0), 0);
+  const nextNodeId = `draft-${template.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  const fallbackPosition = {
+    x: 120 + (draftCount % 2) * 340,
+    y: Math.max(120 + Math.floor(draftCount / 2) * 190, maxY + 180),
+  };
+
+  const position = dropPosition
+    ? {
+      x: Math.round(dropPosition.x || 0),
+      y: Math.round(dropPosition.y || 0),
+    }
+    : fallbackPosition;
+
+  return {
+    id: nextNodeId,
+    type: ARCHITECTURE_NODE_TYPE,
+    position,
+    data: {
+      label: `${template.name} ${draftCount + 1}`,
+      path: '',
+      language: '',
+      kind: DRAFT_NODE_KIND,
+      goal: template.defaultInstructions || '',
+      instructions: template.defaultInstructions || '',
+      templateId: template.id,
+      category: template.category,
+      icon: template.icon,
+    },
+  };
+}
+
+function buildBlueprintPayload(nodes, edges) {
+  const visualNodes = nodes.map((node) => {
+    const name = String(node.data?.label || '').trim();
+    const instructions = String(node.data?.instructions || node.data?.goal || '').trim();
+    const kind = node.data?.kind === DRAFT_NODE_KIND ? DRAFT_NODE_KIND : 'actual';
+
+    return {
+      id: node.id,
+      type: node.type || ARCHITECTURE_NODE_TYPE,
+      position: {
+        x: Math.round(node.position?.x || 0),
+        y: Math.round(node.position?.y || 0),
+      },
+      data: {
+        label: name,
+        name,
+        goal: instructions,
+        instructions,
+        kind,
+        path: node.data?.path || '',
+        language: node.data?.language || '',
+        templateId: node.data?.templateId || '',
+        category: node.data?.category || '',
+        icon: node.data?.icon || '',
+      },
+    };
+  });
+
+  const visualEdges = edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: edge.type || 'smoothstep',
+    label: edge.label || '',
+    kind: edge.data?.kind || 'visual',
+  }));
+
+  return {
+    visualGraph: {
+      nodes: visualNodes,
+      edges: visualEdges,
+    },
+    blueprint: {
+      nodes: visualNodes.map((node) => ({
+        id: node.id,
+        name: node.data.name,
+        instructions: node.data.instructions,
+        kind: node.data.kind,
+        path: node.data.path,
+        templateId: node.data.templateId,
+        category: node.data.category,
+      })),
+      connections: visualEdges.map((edge) => ({
+        id: edge.id,
+        from: edge.source,
+        to: edge.target,
+        label: edge.label,
+      })),
+    },
+  };
+}
+
+function ArchitectureFlowNode({ data, selected }) {
+  const isDraft = data.kind === DRAFT_NODE_KIND;
+  const hasInstructions = Boolean(String(data.instructions || data.goal || '').trim());
+  const iconLabel = String(data.icon || (isDraft ? 'D' : 'C'))
+    .trim()
+    .slice(0, 3)
+    .toUpperCase();
 
   return (
-    <div className="mermaid-wrapper">
-      <TransformWrapper
-        initialScale={1}
-        minScale={0.2}
-        maxScale={4}
-        centerOnInit={true}
-        limitToBounds={false}
-        panning={{ disabled: false, velocityDisabled: false }}
-        wheel={{ step: 0.1 }}
-      >
-        <TransformComponent
-          wrapperStyle={{ width: '100%', height: '100%', cursor: 'grab' }}
-          contentStyle={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-        >
-          <div ref={ref} className="mermaid">
-            {chart}
-          </div>
-        </TransformComponent>
-      </TransformWrapper>
+    <div className={`architecture-flow-node ${isDraft ? 'draft' : 'actual'} ${hasInstructions ? 'has-instructions' : ''} ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} className="architecture-flow-handle" />
+      <div className="architecture-flow-node-head">
+        <div className="architecture-flow-node-title-wrap">
+          <span className={`architecture-flow-node-icon ${isDraft ? 'draft' : 'actual'}`}>
+            {iconLabel || (isDraft ? 'D' : 'C')}
+          </span>
+          <span className="architecture-flow-node-title-text">{data.label || 'Untitled Component'}</span>
+        </div>
+        {hasInstructions && <span className="architecture-flow-node-ai-badge">AI</span>}
+      </div>
+      <div className="architecture-flow-node-sub">
+        {isDraft ? 'Draft Component' : 'Code Component'}
+      </div>
+      {data.path && <div className="architecture-flow-node-path">{data.path}</div>}
+      <Handle type="source" position={Position.Right} className="architecture-flow-handle" />
     </div>
   );
 }
 
-function ArchitecturePage() {
-  const [diagram, setDiagram] = useState('');
-  const [loading, setLoading] = useState(true);
+const architectureNodeTypes = {
+  [ARCHITECTURE_NODE_TYPE]: ArchitectureFlowNode,
+};
 
-  const generateDiagram = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/architecture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      setDiagram((data.diagram || '').trim());
-    } catch (e) {
-      console.error('Failed to generate diagram:', e);
-      setDiagram('Error: Could not connect to backend');
-    }
-    setLoading(false);
+function ArchitecturePage() {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const flowStageRef = useRef(null);
+  const flowInstanceRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
+  const [graphMessage, setGraphMessage] = useState('');
+  const [refactorPlan, setRefactorPlan] = useState(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState(null);
+  const [editorName, setEditorName] = useState('');
+  const [editorInstructions, setEditorInstructions] = useState('');
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(true);
+
+  const graphStats = useMemo(() => {
+    const actualNodes = nodes.filter((node) => node.data?.kind === 'actual').length;
+    const draftNodes = nodes.filter((node) => node.data?.kind === DRAFT_NODE_KIND).length;
+    const instructedNodes = nodes.filter((node) => String(node.data?.instructions || node.data?.goal || '').trim()).length;
+    return {
+      actualNodes,
+      draftNodes,
+      instructedNodes,
+      edgeCount: edges.length,
+    };
+  }, [nodes, edges]);
+
+  const editingNode = useMemo(() => (
+    nodes.find((node) => node.id === editingNodeId) || null
+  ), [nodes, editingNodeId]);
+
+  const openNodeEditor = useCallback((_, node) => {
+    if (!isEditMode) return;
+    setEditingNodeId(node.id);
+    setEditorName(String(node.data?.label || '').trim());
+    setEditorInstructions(String(node.data?.instructions || node.data?.goal || '').trim());
+    setEditorOpen(true);
+    setSyncError('');
+    setSaveMessage('');
+  }, [isEditMode]);
+
+  const closeNodeEditor = () => {
+    setEditorOpen(false);
   };
 
+  const saveNodeEdits = () => {
+    if (!editingNodeId) return;
+    const nextName = editorName.trim() || 'Untitled Component';
+    const nextInstructions = editorInstructions.trim();
+
+    setNodes((currentNodes) => currentNodes.map((node) => (
+      node.id === editingNodeId
+        ? {
+          ...node,
+          data: {
+            ...node.data,
+            label: nextName,
+            goal: nextInstructions,
+            instructions: nextInstructions,
+          },
+        }
+        : node
+    )));
+
+    setEditorOpen(false);
+    setRefactorPlan(null);
+    setSyncError('');
+    setSaveMessage('Component saved.');
+  };
+
+  const loadArchitectureGraph = useCallback(async () => {
+    setLoading(true);
+    setSyncError('');
+    setSaveMessage('');
+
+    try {
+      const res = await fetch(`${API_URL}/api/knowledge-graph`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to load architecture graph');
+      }
+
+      const flowGraph = buildFlowFromAstGraph(data.nodes || [], data.edges || []);
+      setNodes(flowGraph.nodes);
+      setEdges(flowGraph.edges);
+      setGraphMessage(data.message || '');
+      setRefactorPlan(null);
+      setEditorOpen(false);
+      setEditingNodeId(null);
+    } catch (error) {
+      console.error('Failed to load architecture graph:', error);
+      setNodes([]);
+      setEdges([]);
+      setGraphMessage('');
+      setSyncError(error.message || 'Failed to load architecture graph.');
+    } finally {
+      setLoading(false);
+    }
+  }, [setEdges, setNodes]);
+
   useEffect(() => {
-    generateDiagram();
+    loadArchitectureGraph();
+  }, [loadArchitectureGraph]);
+
+  useEffect(() => {
+    const hasSeen = window.localStorage.getItem('codesensei-architecture-tutorial') === 'seen';
+    if (!hasSeen) {
+      setShowTutorial(true);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!editorOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setEditorOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editorOpen]);
+
+  useEffect(() => {
+    if (!isEditMode) {
+      setEditorOpen(false);
+      setEditingNodeId(null);
+    }
+  }, [isEditMode]);
+
+  const addDraftNodeFromTemplate = useCallback((templateId = 'blank-component', dropPosition = null) => {
+    const template = getLibraryTemplate(templateId);
+
+    setNodes((currentNodes) => [
+      ...currentNodes,
+      createDraftNodeFromTemplate(template, currentNodes, dropPosition),
+    ]);
+
+    setRefactorPlan(null);
+    setSyncError('');
+    setSaveMessage('');
+  }, [setNodes]);
+
+  const addDraftNode = () => {
+    if (!isEditMode) return;
+    addDraftNodeFromTemplate('blank-component');
+  };
+
+  const onTemplateDragStart = useCallback((event, templateId) => {
+    if (!isEditMode) return;
+    event.dataTransfer.setData('application/codesensei-template', templateId);
+    event.dataTransfer.setData('text/plain', templateId);
+    event.dataTransfer.effectAllowed = 'move';
+  }, [isEditMode]);
+
+  const onFlowDragOver = useCallback((event) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, [isEditMode]);
+
+  const onFlowDrop = useCallback((event) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+    const templateId = event.dataTransfer.getData('application/codesensei-template')
+      || event.dataTransfer.getData('text/plain');
+    if (!templateId) {
+      return;
+    }
+
+    let dropPosition = null;
+    if (flowInstanceRef.current?.screenToFlowPosition) {
+      dropPosition = flowInstanceRef.current.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+    } else if (flowStageRef.current) {
+      const bounds = flowStageRef.current.getBoundingClientRect();
+      dropPosition = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+    }
+
+    addDraftNodeFromTemplate(templateId, dropPosition);
+  }, [addDraftNodeFromTemplate, isEditMode]);
+
+  const saveBlueprintJson = () => {
+    const payload = buildBlueprintPayload(nodes, edges).blueprint;
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `codesensei-blueprint-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveMessage('Blueprint JSON downloaded.');
+    setSyncError('');
+  };
+
+  const onConnect = useCallback((connection) => {
+    if (!isEditMode) return;
+    if (!connection.source || !connection.target) {
+      return;
+    }
+
+    setEdges((currentEdges) => addEdge({
+      ...connection,
+      id: sanitizeEdgeId(`visual-${Date.now()}-${connection.source}-${connection.target}`),
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+      style: { stroke: '#e6e6e6', strokeWidth: 2 },
+      data: { kind: 'visual' },
+    }, currentEdges));
+    setRefactorPlan(null);
+    setSyncError('');
+    setSaveMessage('');
+  }, [isEditMode, setEdges]);
+
+  const commitDesignToCode = async () => {
+    if (nodes.length === 0) {
+      setSyncError('No architecture graph to commit. Index your project first.');
+      return;
+    }
+
+    setIsCommitting(true);
+    setSyncError('');
+    setSaveMessage('');
+
+    try {
+      const payload = buildBlueprintPayload(nodes, edges);
+      const res = await fetch(`${API_URL}/api/refactor-to-design`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Architecture sync failed');
+      }
+
+      setRefactorPlan(data);
+    } catch (error) {
+      console.error('Commit design to code failed:', error);
+      setRefactorPlan(null);
+      setSyncError(error.message || 'Failed to generate refactor plan from visual graph.');
+    } finally {
+      setIsCommitting(false);
+    }
+  };
 
   return (
     <>
@@ -1054,51 +1526,306 @@ function ArchitecturePage() {
         <div className="page-header-row">
           <div>
             <h1 className="page-title">Architecture</h1>
-            <p className="page-subtitle">System design visualization powered by Gemini</p>
+            <p className="page-subtitle">Draw your system visually. Click any box to add instructions for AI.</p>
           </div>
-          <button className="btn btn-secondary" onClick={generateDiagram} disabled={loading}>
-            <Activity size={16} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Regenerating...' : 'Refresh Diagram'}
-          </button>
+          <div className="page-header-actions">
+            <button className="btn btn-secondary" onClick={addDraftNode} disabled={loading || !isEditMode}>
+              <Plus size={16} />
+              Add Blank Node
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setIsEditMode((current) => !current)}
+              disabled={loading}
+            >
+              {isEditMode ? 'Switch to View Mode' : 'Switch to Edit Mode'}
+            </button>
+            <button className="btn btn-secondary" onClick={saveBlueprintJson} disabled={loading || nodes.length === 0}>
+              Save Blueprint JSON
+            </button>
+            <button className="btn btn-secondary" onClick={loadArchitectureGraph} disabled={loading}>
+              <Activity size={16} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Refreshing...' : 'Refresh from AST'}
+            </button>
+            <button className="btn btn-primary" onClick={commitDesignToCode} disabled={loading || isCommitting || nodes.length === 0}>
+              <ArrowRight size={16} className={isCommitting ? 'animate-pulse' : ''} />
+              {isCommitting ? 'Syncing...' : 'Commit to Code'}
+            </button>
+          </div>
         </div>
       </div>
 
+      {syncError && <div className="alert-card error architecture-sync-error">{syncError}</div>}
+      {saveMessage && <div className="alert-card success architecture-sync-error">{saveMessage}</div>}
+
       <div className="card architecture-card">
-        <div className="architecture-viewport">
-          {diagram && !loading ? (
-            <Mermaid chart={diagram} />
-          ) : (
-            <div className={`architecture-empty ${loading ? 'loading' : ''}`}>
-              {loading ? (
-                <div className="analysis-indicator">
-                  <div className="pulse-circle" />
-                  <p>Gemini is mapping dependencies and grouping components...</p>
+        <div className="architecture-flow-shell">
+          <aside className="architecture-library">
+            <div className="architecture-library-head">
+              <h3>Component Library</h3>
+              <p>Drag a template onto the canvas or click Add.</p>
+            </div>
+            <div className="architecture-library-list">
+              {COMPONENT_LIBRARY_TEMPLATES.map((template) => (
+                <div
+                  key={template.id}
+                  className="architecture-library-item"
+                  draggable={isEditMode && !loading}
+                  onDragStart={(event) => onTemplateDragStart(event, template.id)}
+                >
+                  <div className="architecture-library-item-main">
+                    <span className="architecture-library-item-icon">{template.icon}</span>
+                    <div className="architecture-library-item-copy">
+                      <strong>{template.name}</strong>
+                      <p>{template.description}</p>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => addDraftNodeFromTemplate(template.id)}
+                    disabled={loading || !isEditMode}
+                  >
+                    Add
+                  </button>
                 </div>
-              ) : (
-                <>
+              ))}
+            </div>
+          </aside>
+
+          <div className="architecture-flow-canvas">
+            {loading ? (
+              <div className="architecture-flow-stage architecture-canvas-state">
+                <div className="architecture-empty loading">
+                  <div className="analysis-indicator">
+                    <div className="pulse-circle" />
+                    <p>Loading AST graph and preparing interactive canvas...</p>
+                  </div>
+                </div>
+              </div>
+            ) : nodes.length === 0 ? (
+              <div
+                className="architecture-flow-stage architecture-canvas-state"
+                ref={flowStageRef}
+                onDragOver={onFlowDragOver}
+                onDrop={onFlowDrop}
+              >
+                <div className="architecture-empty">
                   <div className="empty-icon"><Layers size={48} /></div>
-                  <h3>No Diagram Yet</h3>
-                  <p>Generate failed or no data available.</p>
-                </>
-              )}
+                  <h3>No Architecture Graph Yet</h3>
+                  <p>{graphMessage || 'Index your project to populate real file nodes, or drag templates to start from scratch.'}</p>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="architecture-flow-stage"
+                ref={flowStageRef}
+                onDragOver={onFlowDragOver}
+                onDrop={onFlowDrop}
+              >
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  onNodeClick={isEditMode ? openNodeEditor : undefined}
+                  onNodeDoubleClick={isEditMode ? openNodeEditor : undefined}
+                  onInit={(instance) => {
+                    flowInstanceRef.current = instance;
+                  }}
+                  nodeTypes={architectureNodeTypes}
+                  nodesDraggable={isEditMode}
+                  nodesConnectable={isEditMode}
+                  elementsSelectable={isEditMode}
+                  edgesFocusable={isEditMode}
+                  fitView
+                  fitViewOptions={{ padding: 0.22 }}
+                  minZoom={0.2}
+                  maxZoom={2.2}
+                  defaultEdgeOptions={{
+                    type: 'smoothstep',
+                    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+                    style: { stroke: '#a0a0a0', strokeWidth: 1.8 },
+                  }}
+                >
+                  <Background color="rgba(120, 120, 120, 0.2)" gap={24} size={1} />
+                  <MiniMap
+                    pannable
+                    zoomable
+                    nodeColor={(node) => (node.data?.kind === DRAFT_NODE_KIND ? '#e6e6e6' : '#a0a0a0')}
+                    maskColor="rgba(0, 0, 0, 0.35)"
+                  />
+                  <Controls />
+                  <Panel position="top-left" className="architecture-flow-panel">
+                    <div>Actual: {graphStats.actualNodes}</div>
+                    <div>Draft: {graphStats.draftNodes}</div>
+                    <div>AI Notes: {graphStats.instructedNodes}</div>
+                    <div>Edges: {graphStats.edgeCount}</div>
+                  </Panel>
+                  <Panel position="top-right" className="architecture-flow-panel subtle">
+                    {isEditMode ? 'Edit mode: drag templates, connect nodes, and add instructions.' : 'View mode: pan and explore without changes.'}
+                  </Panel>
+                </ReactFlow>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showTutorial && (
+        <div className="node-editor-overlay">
+          <div className="node-editor-modal tutorial-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="node-editor-header">
+              <div>
+                <h3>Welcome to Architecture Builder</h3>
+                <p>Learn by drawing. Select Got it when you are ready to start.</p>
+              </div>
+            </div>
+
+            <div className="tutorial-steps">
+              <div className="tutorial-step">
+                <strong>1. Start with the library</strong>
+                <p>Drag a template to the canvas or click Add. Draft nodes are ideas not in your code yet.</p>
+              </div>
+              <div className="tutorial-step">
+                <strong>2. Connect ideas</strong>
+                <p>Drag from a node handle to another to describe a dependency. Example: UI Screen uses Auth Service.</p>
+              </div>
+              <div className="tutorial-step">
+                <strong>3. Add instructions</strong>
+                <p>Click a node to describe what it should do in plain English. The AI uses this to refactor code.</p>
+              </div>
+              <div className="tutorial-step">
+                <strong>4. Commit to Code</strong>
+                <p>When ready, click Commit to Code to generate a refactor plan and review it before changes.</p>
+              </div>
+            </div>
+
+            <div className="node-editor-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  window.localStorage.setItem('codesensei-architecture-tutorial', 'seen');
+                  setShowTutorial(false);
+                }}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editorOpen && (
+        <div className="node-editor-overlay" onClick={closeNodeEditor}>
+          <div className="node-editor-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="node-editor-header">
+              <div>
+                <h3>Edit Component</h3>
+                <p>{editingNode?.data?.kind === DRAFT_NODE_KIND ? 'Draft node' : 'Codebase node'}</p>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={closeNodeEditor}>
+                <XCircle size={14} />
+                Close
+              </button>
+            </div>
+
+            <label className="node-editor-label">Component Name</label>
+            <input
+              className="node-editor-input"
+              value={editorName}
+              onChange={(event) => setEditorName(event.target.value)}
+              placeholder="Login Screen"
+            />
+
+            <label className="node-editor-label">Instructions for AI</label>
+            <textarea
+              className="node-editor-textarea"
+              value={editorInstructions}
+              onChange={(event) => setEditorInstructions(event.target.value)}
+              placeholder="Describe what this component should do in plain English..."
+            />
+
+            <div className="node-editor-footer">
+              <button className="btn btn-secondary" onClick={closeNodeEditor}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveNodeEdits}>Save Component</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {refactorPlan && (
+        <div className="card architecture-plan-card">
+          <h3>Refactor Plan Preview</h3>
+          <p className="architecture-plan-summary">
+            {refactorPlan.summary || 'Review this plan before applying code changes.'}
+          </p>
+
+          {refactorPlan.comparison && (
+            <div className="architecture-plan-metrics">
+              <span>Current Edges: {refactorPlan.comparison.currentEdgeCount}</span>
+              <span>Desired Edges: {refactorPlan.comparison.desiredEdgeCount}</span>
+              <span>Mapped: {refactorPlan.comparison.mappedDesiredEdgeCount ?? 0}</span>
+              <span>Coverage: {Math.round((refactorPlan.comparison.mappingCoverage || 0) * 100)}%</span>
+            </div>
+          )}
+
+          {refactorPlan.warnings?.length > 0 && (
+            <div className="alert-card error architecture-sync-error">
+              {refactorPlan.warnings.join(' ')}
+            </div>
+          )}
+
+          {refactorPlan.plan?.length > 0 ? (
+            <ul className="architecture-plan-list">
+              {refactorPlan.plan.map((item, index) => (
+                <li key={item.id || `${item.type || 'change'}-${index}`} className="architecture-plan-item">
+                  <div className="architecture-plan-item-head">
+                    <strong>{(item.type || 'change').replace(/_/g, ' ')}</strong>
+                    <span>{Math.round((item.confidence || 0) * 100)}%</span>
+                  </div>
+                  <p>{item.reason || item.description || 'No reason provided.'}</p>
+                  <div className="architecture-plan-paths">
+                    {item.filePath && <code>{item.filePath}</code>}
+                    {item.fromPath && <code>{item.fromPath}</code>}
+                    {item.toPath && <code>{item.toPath}</code>}
+                    {item.importFrom && <code>{item.importFrom}</code>}
+                    {item.importTo && <code>{item.importTo}</code>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="architecture-plan-empty">No deterministic plan items returned. Add goals/arrows and sync again.</p>
+          )}
+
+          {refactorPlan.questions?.length > 0 && (
+            <div className="architecture-plan-questions">
+              <strong>Needs confirmation:</strong>
+              <ul>
+                {refactorPlan.questions.map((question, index) => (
+                  <li key={`${question}-${index}`}>{question}</li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
-      </div>
+      )}
     </>
   );
 }
 
 function getLanguageColor(lang) {
   const colors = {
-    javascript: '#f7df1e',
-    typescript: '#3178c6',
-    python: '#3776ab',
-    java: '#b07219',
-    go: '#00add8',
-    rust: '#dea584',
-    ruby: '#cc342d',
-    default: '#818cf8',
+    javascript: '#e5e5e5',
+    typescript: '#a0a0a0',
+    python: '#d5d5d5',
+    java: '#777777',
+    go: '#a0a0a0',
+    rust: '#d5d5d5',
+    ruby: '#777777',
+    default: '#a0a0a0',
   };
   return colors[lang] || colors.default;
 }

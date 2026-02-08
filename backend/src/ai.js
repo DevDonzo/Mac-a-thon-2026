@@ -90,9 +90,9 @@ async function askWithRAG(query, currentFile = null, options = {}) {
         // Smart Prompt Injection based on retrieval quality
         if (contextQuality === 'low' && !currentFile?.content) {
             systemPrompt += `\n\n[IMPORTANT]: The retrieved context seems to have low relevance (Score: ${topScore.toFixed(2)}). 
-            - If the user is asking a broad high-level question (e.g., "how does this app work"), attempt to synthesize an answer from the snippets but acknowledge if you are missing the big picture.
-            - If the user is asking something specific and the context is missing, admit that you cannot find the specific code and answer based on general programming knowledge or ask for the file name.
-            - DO NOT hallucinate code that isn't in the context.`;
+            - If you cannot find direct evidence in the retrieved context, say so and ask for a file or function name.
+            - Do NOT answer from general programming knowledge if the question appears specific to this repo.
+            - Do NOT hallucinate code that isn't in the context.`;
         } else if (contextQuality === 'high') {
             systemPrompt += `\n\n[IMPORTANT]: High-relevance code snippets found. The user is likely asking about specific implementation details. Be precise and quote the code constants/logic directly.`;
         }
@@ -184,7 +184,11 @@ async function askDirect(query, context = [], options = {}) {
     const startTime = Date.now();
     const systemPrompt = getSystemPrompt(queryType);
 
-    const contextStr = context.map(c =>
+    const normalizedContext = Array.isArray(context)
+        ? context
+        : (context ? [{ path: 'conversation', content: String(context) }] : []);
+
+    const contextStr = normalizedContext.map(c =>
         `File: ${c.path}\n\`\`\`\n${c.content}\n\`\`\``
     ).join('\n\n');
 
@@ -345,7 +349,944 @@ INSTRUCTIONS:
         }
     }
 
+    // 3. Post-process: sanitize lines that could break Mermaid v11
+    const reservedWords = ['style', 'class', 'click', 'callback', 'link', 'linkStyle', 'classDef'];
+    diagram = diagram
+        .split('\n')
+        .filter(line => {
+            const trimmed = line.trim();
+            // Remove lines that are clearly not Mermaid (LLM commentary)
+            if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*')) return false;
+            return true;
+        })
+        .map(line => {
+            // Fix unquoted labels with special chars by wrapping in quotes
+            line = line.replace(/\[([^\]]*[():"<>|][^\]]*)\]/g, (_, label) => {
+                const clean = label.replace(/[():"<>|]/g, '').trim();
+                return `["${clean}"]`;
+            });
+            // Rename reserved-word node IDs (e.g. style[Style] -> styleNode[Style])
+            for (const rw of reservedWords) {
+                const re = new RegExp(`\\b${rw}\\[`, 'g');
+                line = line.replace(re, `${rw}Node[`);
+                const reArrow = new RegExp(`\\b${rw}\\s+(-->|-.->|---|--)`, 'g');
+                line = line.replace(reArrow, `${rw}Node $1`);
+                const reTarget = new RegExp(`(-->|-.->|---|--)\\s+${rw}\\b`, 'g');
+                line = line.replace(reTarget, `$1 ${rw}Node`);
+            }
+            return line;
+        })
+        .join('\n')
+        .trim();
+
     return { diagram, files: nodes.map(n => n.fullPath) };
+}
+
+function extractJsonFromResponse(answer) {
+    if (!answer || typeof answer !== 'string') return null;
+
+    const trimmed = answer.trim();
+    if (!trimmed) return null;
+
+    const tryParse = (value) => {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    };
+
+    const direct = tryParse(trimmed);
+    if (direct && typeof direct === 'object') return direct;
+
+    const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (codeBlockMatch) {
+        const fromCodeBlock = tryParse(codeBlockMatch[1].trim());
+        if (fromCodeBlock && typeof fromCodeBlock === 'object') return fromCodeBlock;
+    }
+
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const sliced = trimmed.slice(firstBrace, lastBrace + 1);
+        const fromSlice = tryParse(sliced);
+        if (fromSlice && typeof fromSlice === 'object') return fromSlice;
+    }
+
+    return null;
+}
+
+function normalizeNodeKey(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .replace(/[\\]/g, '/')
+        .replace(/[^a-z0-9./_-]/g, '');
+}
+
+function stripMermaidShape(labelToken) {
+    if (!labelToken || typeof labelToken !== 'string') return '';
+
+    return labelToken
+        .trim()
+        .replace(/^\[\(/, '')
+        .replace(/\)\]$/, '')
+        .replace(/^\[\[/, '')
+        .replace(/\]\]$/, '')
+        .replace(/^\[/, '')
+        .replace(/\]$/, '')
+        .replace(/^\{\{/, '')
+        .replace(/\}\}$/, '')
+        .replace(/^\(/, '')
+        .replace(/\)$/, '')
+        .replace(/^\{/, '')
+        .replace(/\}$/, '')
+        .trim()
+        .replace(/^["'`]+|["'`]+$/g, '');
+}
+
+function parseMermaidNodeToken(token) {
+    if (!token || typeof token !== 'string') return null;
+
+    const cleaned = token
+        .trim()
+        .replace(/:::[A-Za-z0-9_-]+/g, '')
+        .replace(/;$/, '')
+        .trim();
+
+    if (!cleaned) return null;
+
+    const nodeMatch = cleaned.match(/^([A-Za-z0-9_.:/-]+)\s*(\[\([^\)]*\)\]|\[[^\]]*\]|\{\{[^}]*\}\}|\([^\)]*\)|\{[^}]*\})?$/);
+    if (!nodeMatch) return null;
+
+    return {
+        id: nodeMatch[1],
+        label: stripMermaidShape(nodeMatch[2] || '')
+    };
+}
+
+function parseMermaidDesign(mermaidText) {
+    const nodeMap = new Map();
+    const parsedEdges = [];
+    const lines = String(mermaidText || '').split('\n');
+
+    const declarationRegex = /([A-Za-z0-9_.:/-]+)\s*(\[\([^\)]*\)\]|\[[^\]]*\]|\{\{[^}]*\}\}|\([^\)]*\)|\{[^}]*\})/g;
+    const edgeRegex = /([A-Za-z0-9_.:/-]+(?:\s*(?:\[\([^\)]*\)\]|\[[^\]]*\]|\{\{[^}]*\}\}|\([^\)]*\)|\{[^}]*\}))?)\s*(-->|==>|-.->|---)\s*([A-Za-z0-9_.:/-]+(?:\s*(?:\[\([^\)]*\)\]|\[[^\]]*\]|\{\{[^}]*\}\}|\([^\)]*\)|\{[^}]*\}))?)/g;
+
+    const upsertNode = (node) => {
+        if (!node?.id) return;
+        if (!nodeMap.has(node.id)) {
+            nodeMap.set(node.id, { id: node.id, label: node.label || '' });
+            return;
+        }
+        const existing = nodeMap.get(node.id);
+        if (!existing.label && node.label) {
+            existing.label = node.label;
+        }
+    };
+
+    for (const rawLine of lines) {
+        const cleaned = rawLine.replace(/%%.*$/, '').trim();
+        if (!cleaned || cleaned.startsWith('graph ') || cleaned.startsWith('subgraph ') || cleaned === 'end') {
+            continue;
+        }
+
+        declarationRegex.lastIndex = 0;
+        let declarationMatch;
+        while ((declarationMatch = declarationRegex.exec(cleaned)) !== null) {
+            upsertNode({
+                id: declarationMatch[1],
+                label: stripMermaidShape(declarationMatch[2])
+            });
+        }
+
+        const normalizedEdgeLine = cleaned
+            .replace(/--[^-]*-->/g, '-->')
+            .replace(/==[^=]*==>/g, '==>')
+            .replace(/-\.[^.]*\.->/g, '-.->');
+
+        edgeRegex.lastIndex = 0;
+        let edgeMatch;
+        while ((edgeMatch = edgeRegex.exec(normalizedEdgeLine)) !== null) {
+            const fromToken = parseMermaidNodeToken(edgeMatch[1]);
+            const toToken = parseMermaidNodeToken(edgeMatch[3]);
+            if (!fromToken || !toToken) continue;
+
+            upsertNode(fromToken);
+            upsertNode(toToken);
+
+            parsedEdges.push({
+                fromId: fromToken.id,
+                fromLabel: fromToken.label || '',
+                toId: toToken.id,
+                toLabel: toToken.label || '',
+                arrow: edgeMatch[2],
+                raw: cleaned
+            });
+        }
+    }
+
+    return {
+        nodes: Array.from(nodeMap.values()),
+        edges: parsedEdges
+    };
+}
+
+function buildAliasLookup(nodes) {
+    const aliasToPaths = new Map();
+
+    const addAlias = (alias, path) => {
+        const normalized = normalizeNodeKey(alias);
+        if (!normalized) return;
+        if (!aliasToPaths.has(normalized)) aliasToPaths.set(normalized, new Set());
+        aliasToPaths.get(normalized).add(path);
+    };
+
+    for (const node of nodes) {
+        const filePath = node.fullPath;
+        const baseName = filePath.split('/').pop() || filePath;
+        const baseNoExt = baseName.replace(/\.[^.]+$/, '');
+
+        addAlias(filePath, filePath);
+        addAlias(baseName, filePath);
+        addAlias(baseNoExt, filePath);
+        addAlias(node.label, filePath);
+        addAlias(filePath.replace(/\.[^.]+$/, ''), filePath);
+    }
+
+    return aliasToPaths;
+}
+
+function resolvePathFromNode(node, aliasLookup) {
+    if (!node) {
+        return { resolvedPath: null, reason: 'empty_node' };
+    }
+
+    const candidates = [node.id, node.label];
+
+    for (const candidate of candidates) {
+        const normalized = normalizeNodeKey(candidate);
+        if (!normalized) continue;
+
+        const exact = aliasLookup.get(normalized);
+        if (exact?.size === 1) {
+            return { resolvedPath: Array.from(exact)[0], reason: 'exact_alias' };
+        }
+        if (exact?.size > 1) {
+            return { resolvedPath: null, reason: `ambiguous_alias:${candidate}` };
+        }
+    }
+
+    const normalizedCandidates = candidates.map(normalizeNodeKey).filter(Boolean);
+    if (normalizedCandidates.length === 0) {
+        return { resolvedPath: null, reason: 'no_candidate' };
+    }
+
+    const fuzzyMatches = [];
+    for (const [alias, paths] of aliasLookup.entries()) {
+        for (const candidate of normalizedCandidates) {
+            if (alias.includes(candidate) || candidate.includes(alias)) {
+                paths.forEach(path => fuzzyMatches.push(path));
+            }
+        }
+    }
+
+    const uniqueFuzzy = [...new Set(fuzzyMatches)];
+    if (uniqueFuzzy.length === 1) {
+        return { resolvedPath: uniqueFuzzy[0], reason: 'fuzzy_alias' };
+    }
+
+    return { resolvedPath: null, reason: uniqueFuzzy.length > 1 ? 'ambiguous_fuzzy' : 'not_found' };
+}
+
+function clampConfidence(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0.5;
+    if (num < 0) return 0;
+    if (num > 1) return 1;
+    return Number(num.toFixed(3));
+}
+
+function normalizeRefactorPlan(raw, knownPaths) {
+    const result = {
+        summary: '',
+        plan: [],
+        warnings: [],
+        questions: []
+    };
+
+    if (!raw || typeof raw !== 'object') {
+        result.warnings.push('Gemini response was not valid JSON.');
+        return result;
+    }
+
+    if (typeof raw.summary === 'string') {
+        result.summary = raw.summary.trim();
+    }
+
+    if (Array.isArray(raw.warnings)) {
+        raw.warnings.forEach((warning) => {
+            if (typeof warning === 'string' && warning.trim()) {
+                result.warnings.push(warning.trim());
+            }
+        });
+    }
+
+    if (Array.isArray(raw.questions)) {
+        raw.questions.forEach((question) => {
+            if (typeof question === 'string' && question.trim()) {
+                result.questions.push(question.trim());
+            }
+        });
+    }
+
+    const allowedTypes = new Set([
+        'change_import',
+        'delete_import',
+        'move_file',
+        'create_file',
+        'create_module',
+        'extract_module',
+        'rename_symbol',
+        'update_file_goal',
+        'add_dependency',
+        'remove_dependency',
+        'manual_review'
+    ]);
+
+    if (Array.isArray(raw.plan)) {
+        raw.plan.forEach((item, index) => {
+            if (!item || typeof item !== 'object') return;
+
+            const normalized = {
+                id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `plan-${index + 1}`,
+                type: allowedTypes.has(item.type) ? item.type : 'manual_review',
+                filePath: typeof item.filePath === 'string' ? item.filePath.trim() : '',
+                fromPath: typeof item.fromPath === 'string' ? item.fromPath.trim() : '',
+                toPath: typeof item.toPath === 'string' ? item.toPath.trim() : '',
+                importFrom: typeof item.importFrom === 'string' ? item.importFrom.trim() : '',
+                importTo: typeof item.importTo === 'string' ? item.importTo.trim() : '',
+                symbol: typeof item.symbol === 'string' ? item.symbol.trim() : '',
+                reason: typeof item.reason === 'string' && item.reason.trim()
+                    ? item.reason.trim()
+                    : (typeof item.description === 'string' ? item.description.trim() : ''),
+                confidence: clampConfidence(item.confidence)
+            };
+
+            const allowsNewFilePath = normalized.type === 'create_module' || normalized.type === 'create_file';
+            const allowsNewToPath = normalized.type === 'move_file' || normalized.type === 'create_module' || normalized.type === 'create_file';
+            const allowsNewImportTo = normalized.type === 'create_module' || normalized.type === 'create_file';
+
+            if (normalized.filePath && !knownPaths.has(normalized.filePath) && !allowsNewFilePath) {
+                result.warnings.push(`Plan item ${normalized.id} references unknown filePath: ${normalized.filePath}`);
+            }
+
+            if (normalized.fromPath && !knownPaths.has(normalized.fromPath)) {
+                result.warnings.push(`Plan item ${normalized.id} references unknown fromPath: ${normalized.fromPath}`);
+            }
+
+            if (normalized.toPath && !knownPaths.has(normalized.toPath) && !allowsNewToPath) {
+                result.warnings.push(`Plan item ${normalized.id} references unknown toPath: ${normalized.toPath}`);
+            }
+
+            if (normalized.importFrom && !knownPaths.has(normalized.importFrom)) {
+                result.warnings.push(`Plan item ${normalized.id} references unknown importFrom: ${normalized.importFrom}`);
+            }
+
+            if (normalized.importTo && !knownPaths.has(normalized.importTo) && !allowsNewImportTo) {
+                result.warnings.push(`Plan item ${normalized.id} references unknown importTo: ${normalized.importTo}`);
+            }
+
+            result.plan.push(normalized);
+        });
+    }
+
+    return result;
+}
+
+/**
+ * Compare edited Mermaid design against AST graph and produce a refactor plan.
+ */
+async function generateRefactorPlanFromDesign({ mermaid, originalMermaid = '' }) {
+    const graph = vectorStore.getDependencyGraph();
+    const files = graph.nodes || [];
+    const currentEdges = graph.edges || [];
+
+    if (files.length === 0) {
+        return {
+            summary: 'No project indexed yet.',
+            plan: [],
+            warnings: ['Index a project before running architecture sync.'],
+            questions: ['Should the backend trigger indexing first?'],
+            comparison: {
+                currentEdgeCount: 0,
+                desiredEdgeCount: 0,
+                mappedDesiredEdgeCount: 0,
+                addedEdges: [],
+                removedEdges: [],
+                mappingCoverage: 0
+            }
+        };
+    }
+
+    const parsedDesign = parseMermaidDesign(mermaid);
+    const aliasLookup = buildAliasLookup(files);
+    const nodeById = new Map(parsedDesign.nodes.map(node => [node.id, node]));
+    const unresolvedNodes = [];
+    const mappedDesiredEdges = [];
+
+    for (const edge of parsedDesign.edges) {
+        const sourceNode = nodeById.get(edge.fromId) || { id: edge.fromId, label: edge.fromLabel || '' };
+        const targetNode = nodeById.get(edge.toId) || { id: edge.toId, label: edge.toLabel || '' };
+
+        const sourceResolved = resolvePathFromNode(sourceNode, aliasLookup);
+        const targetResolved = resolvePathFromNode(targetNode, aliasLookup);
+
+        if (!sourceResolved.resolvedPath || !targetResolved.resolvedPath) {
+            unresolvedNodes.push({
+                from: sourceNode,
+                to: targetNode,
+                sourceReason: sourceResolved.reason,
+                targetReason: targetResolved.reason
+            });
+            continue;
+        }
+
+        mappedDesiredEdges.push({
+            source: sourceResolved.resolvedPath,
+            target: targetResolved.resolvedPath,
+            arrow: edge.arrow
+        });
+    }
+
+    const desiredEdgeSet = new Set(mappedDesiredEdges.map(edge => `${edge.source}=>${edge.target}`));
+    const currentEdgeSet = new Set(currentEdges.map(edge => `${edge.source}=>${edge.target}`));
+
+    const addedEdges = [...desiredEdgeSet]
+        .filter(key => !currentEdgeSet.has(key))
+        .map((key) => {
+            const [source, target] = key.split('=>');
+            return { source, target };
+        });
+
+    const removedEdges = [...currentEdgeSet]
+        .filter(key => !desiredEdgeSet.has(key))
+        .map((key) => {
+            const [source, target] = key.split('=>');
+            return { source, target };
+        });
+
+    const mappingCoverage = parsedDesign.edges.length > 0
+        ? mappedDesiredEdges.length / parsedDesign.edges.length
+        : 1;
+
+    const unresolvedPreview = unresolvedNodes.slice(0, 30);
+    const fileCatalog = files.map(node => ({
+        fullPath: node.fullPath,
+        label: node.label,
+        language: node.language,
+        imports: (node.imports || []).slice(0, 20)
+    }));
+    const maxFilesForPrompt = 600;
+    const maxEdgesForPrompt = 1200;
+    const fileCatalogForPrompt = fileCatalog.slice(0, maxFilesForPrompt);
+    const currentEdgesForPrompt = currentEdges.slice(0, maxEdgesForPrompt);
+
+    const designPrompt = `You are generating a concrete codebase refactor plan from an edited architecture diagram.
+
+Return JSON only. Do not include markdown fences.
+
+OUTPUT JSON SCHEMA:
+{
+  "summary": "string",
+  "plan": [
+    {
+      "id": "string",
+      "type": "change_import|delete_import|move_file|create_module|rename_symbol|manual_review",
+      "filePath": "path/to/file.ext",
+      "fromPath": "path/to/file.ext",
+      "toPath": "path/to/file.ext",
+      "importFrom": "path/to/file.ext",
+      "importTo": "path/to/file.ext",
+      "symbol": "optional symbol name",
+      "reason": "one sentence",
+      "confidence": 0.0
+    }
+  ],
+  "warnings": ["string"],
+  "questions": ["string"]
+}
+
+HARD RULES:
+1. Use only file paths that exist in FILE_CATALOG for filePath/fromPath/importFrom/importTo.
+2. Keep plan minimal and executable. Avoid speculative rewrites.
+3. Prefer change_import or move_file when possible.
+4. If mapping ambiguity exists, add a manual_review item and a question.
+5. confidence must be between 0 and 1.
+
+FILE_CATALOG:
+${JSON.stringify(fileCatalogForPrompt, null, 2)}
+
+CURRENT_AST_EDGES:
+${JSON.stringify(currentEdgesForPrompt, null, 2)}
+
+DESIRED_MERMAID:
+${mermaid}
+
+OPTIONAL_ORIGINAL_MERMAID:
+${originalMermaid || 'N/A'}
+
+DETERMINISTIC_EDGE_DIFF:
+${JSON.stringify({
+        parsedMermaidEdges: parsedDesign.edges.length,
+        mappedDesiredEdges: mappedDesiredEdges.length,
+        addedEdges,
+        removedEdges,
+        unresolvedNodes: unresolvedPreview,
+        mappingCoverage: Number(mappingCoverage.toFixed(3))
+    }, null, 2)}
+
+Produce the final JSON only.`;
+
+    const llmAnswer = await generateContent(designPrompt);
+    const parsedPlan = extractJsonFromResponse(llmAnswer);
+    const normalizedPlan = normalizeRefactorPlan(parsedPlan, new Set(files.map(file => file.fullPath)));
+
+    if (normalizedPlan.plan.length === 0 && (addedEdges.length > 0 || removedEdges.length > 0)) {
+        addedEdges.slice(0, 12).forEach((edge, index) => {
+            normalizedPlan.plan.push({
+                id: `auto-add-edge-${index + 1}`,
+                type: 'manual_review',
+                filePath: edge.source,
+                fromPath: '',
+                toPath: '',
+                importFrom: edge.target,
+                importTo: '',
+                symbol: '',
+                reason: `Design adds dependency ${edge.source} -> ${edge.target}. Choose an import site and symbol.`,
+                confidence: 0.4
+            });
+        });
+
+        removedEdges.slice(0, 12).forEach((edge, index) => {
+            normalizedPlan.plan.push({
+                id: `auto-remove-edge-${index + 1}`,
+                type: 'delete_import',
+                filePath: edge.source,
+                fromPath: '',
+                toPath: '',
+                importFrom: edge.target,
+                importTo: '',
+                symbol: '',
+                reason: `Design removes dependency ${edge.source} -> ${edge.target}. Verify and delete unused imports.`,
+                confidence: 0.55
+            });
+        });
+    }
+
+    if (!normalizedPlan.summary) {
+        normalizedPlan.summary = `Generated ${normalizedPlan.plan.length} candidate change(s) from Mermaid-to-code sync.`;
+    }
+
+    if (mappingCoverage < 0.6) {
+        normalizedPlan.warnings.push('Low node-to-file mapping coverage. Rename Mermaid nodes closer to real file names for higher precision.');
+    }
+
+    if (unresolvedNodes.length > 0) {
+        normalizedPlan.warnings.push(`${unresolvedNodes.length} Mermaid edge(s) could not be mapped to concrete files.`);
+    }
+
+    if (files.length > fileCatalogForPrompt.length) {
+        normalizedPlan.warnings.push(`Prompt context was truncated to ${fileCatalogForPrompt.length} files out of ${files.length}.`);
+    }
+
+    if (currentEdges.length > currentEdgesForPrompt.length) {
+        normalizedPlan.warnings.push(`Prompt context was truncated to ${currentEdgesForPrompt.length} edges out of ${currentEdges.length}.`);
+    }
+
+    return {
+        ...normalizedPlan,
+        comparison: {
+            currentEdgeCount: currentEdges.length,
+            desiredEdgeCount: parsedDesign.edges.length,
+            mappedDesiredEdgeCount: mappedDesiredEdges.length,
+            addedEdges,
+            removedEdges,
+            mappingCoverage: Number(mappingCoverage.toFixed(3))
+        }
+    };
+}
+
+function normalizeVisualGraphPayload(visualGraph) {
+    const warnings = [];
+    const nodeMap = new Map();
+    const rawNodes = Array.isArray(visualGraph?.nodes) ? visualGraph.nodes : [];
+    const rawEdges = Array.isArray(visualGraph?.edges) ? visualGraph.edges : [];
+
+    for (const rawNode of rawNodes) {
+        if (!rawNode || typeof rawNode !== 'object') continue;
+        const id = typeof rawNode.id === 'string' ? rawNode.id.trim() : '';
+        if (!id) continue;
+
+        const data = rawNode.data && typeof rawNode.data === 'object' ? rawNode.data : {};
+        const kind = data.kind === 'blueprint' || data.kind === 'draft' ? 'blueprint' : 'actual';
+        const path = typeof data.path === 'string' && data.path.trim()
+            ? data.path.trim()
+            : (kind === 'actual' ? id : '');
+        const label = typeof data.label === 'string' && data.label.trim()
+            ? data.label.trim()
+            : (typeof data.name === 'string' && data.name.trim() ? data.name.trim() : (path.split('/').pop() || id));
+        const goal = typeof data.instructions === 'string' && data.instructions.trim()
+            ? data.instructions.trim()
+            : (typeof data.goal === 'string' ? data.goal.trim() : '');
+
+        nodeMap.set(id, {
+            id,
+            kind,
+            path,
+            label,
+            goal,
+            position: {
+                x: Number(rawNode.position?.x) || 0,
+                y: Number(rawNode.position?.y) || 0
+            }
+        });
+    }
+
+    const edges = [];
+    for (const rawEdge of rawEdges) {
+        if (!rawEdge || typeof rawEdge !== 'object') continue;
+        const source = typeof rawEdge.source === 'string' ? rawEdge.source.trim() : '';
+        const target = typeof rawEdge.target === 'string' ? rawEdge.target.trim() : '';
+        if (!source || !target) continue;
+
+        if (!nodeMap.has(source) || !nodeMap.has(target)) {
+            warnings.push(`Skipped edge ${source} -> ${target} because one endpoint is missing.`);
+            continue;
+        }
+
+        const kind = rawEdge.kind
+            || (typeof rawEdge.data?.kind === 'string' ? rawEdge.data.kind : '')
+            || 'visual';
+
+        edges.push({
+            id: typeof rawEdge.id === 'string' && rawEdge.id.trim() ? rawEdge.id.trim() : `${source}->${target}`,
+            source,
+            target,
+            kind,
+            label: typeof rawEdge.label === 'string' ? rawEdge.label.trim() : ''
+        });
+    }
+
+    return {
+        nodes: Array.from(nodeMap.values()),
+        edges,
+        warnings
+    };
+}
+
+function buildBlueprintPath(label, fallbackId) {
+    const base = String(label || fallbackId || 'module')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+
+    return `src/${base || 'new-module'}.js`;
+}
+
+/**
+ * Compare user-modified visual graph against AST graph and produce refactor plan.
+ */
+async function generateRefactorPlanFromVisualGraph({ visualGraph }) {
+    const graph = vectorStore.getDependencyGraph();
+    const files = graph.nodes || [];
+    const currentEdges = graph.edges || [];
+
+    if (files.length === 0) {
+        return {
+            summary: 'No project indexed yet.',
+            plan: [],
+            warnings: ['Index a project before running architecture sync.'],
+            questions: ['Should the backend trigger indexing first?'],
+            comparison: {
+                currentEdgeCount: 0,
+                desiredEdgeCount: 0,
+                mappedDesiredEdgeCount: 0,
+                addedEdges: [],
+                removedEdges: [],
+                mappingCoverage: 0,
+                actualGoalCount: 0,
+                blueprintGoalCount: 0
+            }
+        };
+    }
+
+    const normalizedVisual = normalizeVisualGraphPayload(visualGraph);
+    const nodeById = new Map(normalizedVisual.nodes.map(node => [node.id, node]));
+    const knownPaths = new Set(files.map(file => file.fullPath));
+    const currentEdgeSet = new Set(currentEdges.map(edge => `${edge.source}=>${edge.target}`));
+
+    const unresolvedActualNodes = normalizedVisual.nodes
+        .filter(node => node.kind === 'actual' && node.path && !knownPaths.has(node.path))
+        .map(node => ({ id: node.id, path: node.path, label: node.label }));
+
+    const desiredActualEdges = [];
+    const blueprintEdges = [];
+
+    for (const edge of normalizedVisual.edges) {
+        const sourceNode = nodeById.get(edge.source);
+        const targetNode = nodeById.get(edge.target);
+        if (!sourceNode || !targetNode) continue;
+
+        const isActualToActual = sourceNode.kind === 'actual'
+            && targetNode.kind === 'actual'
+            && sourceNode.path
+            && targetNode.path
+            && knownPaths.has(sourceNode.path)
+            && knownPaths.has(targetNode.path);
+
+        if (isActualToActual) {
+            desiredActualEdges.push({
+                source: sourceNode.path,
+                target: targetNode.path,
+                label: edge.label
+            });
+            continue;
+        }
+
+        blueprintEdges.push({
+            sourceId: sourceNode.id,
+            sourceKind: sourceNode.kind,
+            sourcePath: sourceNode.path,
+            sourceLabel: sourceNode.label,
+            targetId: targetNode.id,
+            targetKind: targetNode.kind,
+            targetPath: targetNode.path,
+            targetLabel: targetNode.label,
+            edgeLabel: edge.label
+        });
+    }
+
+    const desiredEdgeSet = new Set(desiredActualEdges.map(edge => `${edge.source}=>${edge.target}`));
+    const addedEdges = [...desiredEdgeSet]
+        .filter(key => !currentEdgeSet.has(key))
+        .map((key) => {
+            const [source, target] = key.split('=>');
+            return { source, target };
+        });
+
+    const removedEdges = [...currentEdgeSet]
+        .filter(key => !desiredEdgeSet.has(key))
+        .map((key) => {
+            const [source, target] = key.split('=>');
+            return { source, target };
+        });
+
+    const actualGoalNodes = normalizedVisual.nodes
+        .filter(node => node.kind === 'actual' && node.goal && node.path && knownPaths.has(node.path))
+        .map(node => ({ path: node.path, goal: node.goal, label: node.label }));
+
+    const blueprintGoalNodes = normalizedVisual.nodes
+        .filter(node => node.kind === 'blueprint' && node.goal)
+        .map(node => ({ id: node.id, label: node.label, goal: node.goal }));
+
+    const mappingCoverage = normalizedVisual.edges.length > 0
+        ? desiredActualEdges.length / normalizedVisual.edges.length
+        : 1;
+
+    const maxFilesForPrompt = 600;
+    const maxCurrentEdgesForPrompt = 1200;
+    const maxVisualNodesForPrompt = 600;
+    const maxVisualEdgesForPrompt = 1200;
+
+    const fileCatalog = files.slice(0, maxFilesForPrompt).map(node => ({
+        fullPath: node.fullPath,
+        label: node.label,
+        language: node.language
+    }));
+
+    const currentEdgesForPrompt = currentEdges.slice(0, maxCurrentEdgesForPrompt);
+    const visualNodesForPrompt = normalizedVisual.nodes.slice(0, maxVisualNodesForPrompt).map(node => ({
+        id: node.id,
+        kind: node.kind,
+        path: node.path,
+        label: node.label,
+        goal: node.goal
+    }));
+    const visualEdgesForPrompt = normalizedVisual.edges.slice(0, maxVisualEdgesForPrompt);
+
+    const systemArchitectPrompt = `You are CodeSensei System Architect. Convert a modified visual graph into a concrete, minimal refactor plan.
+
+Interpretation rules:
+1. If user draws arrow Actual(A) -> Actual(B), then A should depend on B. Usually this means add or update import in A referencing B.
+2. If an existing Actual(A) -> Actual(B) edge is removed in the visual graph, then dependency should likely be removed (delete import if unused).
+3. A goal text inside an Actual node is a direct refactor objective for that existing file.
+4. A Blueprint node is a proposed module/component that may not exist in code yet. Propose creating files/modules and rewiring dependencies.
+5. If confidence is low or mapping is ambiguous, output manual_review and include clarifying questions.
+
+Output JSON only (no markdown):
+{
+  "summary": "string",
+  "plan": [
+    {
+      "id": "string",
+      "type": "change_import|delete_import|move_file|create_file|create_module|extract_module|rename_symbol|update_file_goal|add_dependency|remove_dependency|manual_review",
+      "filePath": "existing/file/path.js",
+      "fromPath": "existing/file/path.js",
+      "toPath": "new/or/existing/path.js",
+      "importFrom": "existing/file/path.js",
+      "importTo": "existing/or/new/path.js",
+      "symbol": "optional symbol",
+      "reason": "single sentence with why",
+      "confidence": 0.0
+    }
+  ],
+  "warnings": ["string"],
+  "questions": ["string"]
+}
+
+Hard constraints:
+- For existing-file operations, use only paths present in FILE_CATALOG.
+- Keep actions atomic and executable.
+- Prefer explicit dependency edits over broad rewrites.
+- confidence in [0,1].
+
+FILE_CATALOG:
+${JSON.stringify(fileCatalog, null, 2)}
+
+CURRENT_AST_EDGES:
+${JSON.stringify(currentEdgesForPrompt, null, 2)}
+
+VISUAL_GRAPH_NODES:
+${JSON.stringify(visualNodesForPrompt, null, 2)}
+
+VISUAL_GRAPH_EDGES:
+${JSON.stringify(visualEdgesForPrompt, null, 2)}
+
+DETERMINISTIC_DIFF_HINTS:
+${JSON.stringify({
+        addedEdges,
+        removedEdges,
+        actualGoalNodes: actualGoalNodes.slice(0, 80),
+        blueprintGoalNodes: blueprintGoalNodes.slice(0, 80),
+        blueprintEdges: blueprintEdges.slice(0, 120),
+        unresolvedActualNodes: unresolvedActualNodes.slice(0, 80),
+        mappingCoverage: Number(mappingCoverage.toFixed(3))
+    }, null, 2)}
+
+Return final JSON only.`;
+
+    const llmAnswer = await generateContent(systemArchitectPrompt);
+    const parsedPlan = extractJsonFromResponse(llmAnswer);
+    const normalizedPlan = normalizeRefactorPlan(parsedPlan, knownPaths);
+
+    normalizedVisual.warnings.forEach((warning) => normalizedPlan.warnings.push(warning));
+
+    if (normalizedPlan.plan.length === 0) {
+        addedEdges.slice(0, 16).forEach((edge, index) => {
+            normalizedPlan.plan.push({
+                id: `edge-add-${index + 1}`,
+                type: 'change_import',
+                filePath: edge.source,
+                fromPath: '',
+                toPath: '',
+                importFrom: edge.target,
+                importTo: '',
+                symbol: '',
+                reason: `User drew a dependency from ${edge.source} to ${edge.target}.`,
+                confidence: 0.72
+            });
+        });
+
+        removedEdges.slice(0, 16).forEach((edge, index) => {
+            normalizedPlan.plan.push({
+                id: `edge-remove-${index + 1}`,
+                type: 'delete_import',
+                filePath: edge.source,
+                fromPath: '',
+                toPath: '',
+                importFrom: edge.target,
+                importTo: '',
+                symbol: '',
+                reason: `User removed dependency from ${edge.source} to ${edge.target}.`,
+                confidence: 0.7
+            });
+        });
+
+        actualGoalNodes.slice(0, 16).forEach((goalNode, index) => {
+            normalizedPlan.plan.push({
+                id: `goal-actual-${index + 1}`,
+                type: 'update_file_goal',
+                filePath: goalNode.path,
+                fromPath: '',
+                toPath: '',
+                importFrom: '',
+                importTo: '',
+                symbol: '',
+                reason: `Goal for ${goalNode.path}: ${goalNode.goal}`,
+                confidence: 0.62
+            });
+        });
+
+        blueprintGoalNodes.slice(0, 16).forEach((goalNode, index) => {
+            normalizedPlan.plan.push({
+                id: `goal-blueprint-${index + 1}`,
+                type: 'create_module',
+                filePath: '',
+                fromPath: '',
+                toPath: buildBlueprintPath(goalNode.label, goalNode.id),
+                importFrom: '',
+                importTo: '',
+                symbol: '',
+                reason: `Create blueprint module "${goalNode.label}" to satisfy goal: ${goalNode.goal}`,
+                confidence: 0.58
+            });
+        });
+    }
+
+    if (!normalizedPlan.summary) {
+        normalizedPlan.summary = `Generated ${normalizedPlan.plan.length} candidate change(s) from interactive architecture graph.`;
+    }
+
+    if (mappingCoverage < 0.6) {
+        normalizedPlan.warnings.push('Low mapping coverage between visual edges and concrete files. Ensure Actual nodes keep valid file paths.');
+    }
+
+    if (unresolvedActualNodes.length > 0) {
+        normalizedPlan.warnings.push(`${unresolvedActualNodes.length} Actual node(s) referenced unknown file paths.`);
+    }
+
+    if (files.length > fileCatalog.length) {
+        normalizedPlan.warnings.push(`Prompt context truncated to ${fileCatalog.length} files out of ${files.length}.`);
+    }
+
+    if (currentEdges.length > currentEdgesForPrompt.length) {
+        normalizedPlan.warnings.push(`Prompt context truncated to ${currentEdgesForPrompt.length} edges out of ${currentEdges.length}.`);
+    }
+
+    if (normalizedVisual.nodes.length > visualNodesForPrompt.length) {
+        normalizedPlan.warnings.push(`Prompt context truncated to ${visualNodesForPrompt.length} visual nodes out of ${normalizedVisual.nodes.length}.`);
+    }
+
+    if (normalizedVisual.edges.length > visualEdgesForPrompt.length) {
+        normalizedPlan.warnings.push(`Prompt context truncated to ${visualEdgesForPrompt.length} visual edges out of ${normalizedVisual.edges.length}.`);
+    }
+
+    return {
+        ...normalizedPlan,
+        comparison: {
+            currentEdgeCount: currentEdges.length,
+            desiredEdgeCount: normalizedVisual.edges.length,
+            mappedDesiredEdgeCount: desiredActualEdges.length,
+            addedEdges,
+            removedEdges,
+            mappingCoverage: Number(mappingCoverage.toFixed(3)),
+            actualGoalCount: actualGoalNodes.length,
+            blueprintGoalCount: blueprintGoalNodes.length
+        }
+    };
 }
 
 function getSystemPrompt(queryType, mentorMode = false) {
@@ -369,5 +1310,7 @@ module.exports = {
     analyzeCode,
     suggestRefactor,
     generateTests,
-    generateArchitecture
+    generateArchitecture,
+    generateRefactorPlanFromDesign,
+    generateRefactorPlanFromVisualGraph
 };

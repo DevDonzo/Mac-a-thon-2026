@@ -71,7 +71,7 @@ async function runTests() {
     // Test 2: Status endpoint
     try {
         const res = await request('GET', '/api/status');
-        if (log('Status Endpoint', res.status === 200 && res.data.index)) {
+        if (log('Status Endpoint', res.status === 200 && res.data.stats)) {
             passed++;
         } else {
             failed++;

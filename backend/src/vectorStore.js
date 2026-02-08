@@ -76,7 +76,6 @@ class VectorStore {
         logger.info(`Starting indexing for project: ${projectId}`, { fileCount: files.length });
 
         this.projectId = projectId;
-        this.chunks = [];
         this.hasEmbeddings = false;
 
         // Split files into chunks
@@ -99,9 +98,10 @@ class VectorStore {
         const texts = allChunks.map(c => c.text);
         const embeddings = await generateEmbeddings(texts);
 
+        const indexedChunks = [];
         if (embeddings && embeddings.length === allChunks.length) {
             for (let i = 0; i < allChunks.length; i++) {
-                this.chunks.push({
+                indexedChunks.push({
                     ...allChunks[i],
                     embedding: embeddings[i],
                     id: `chunk_${i}`
@@ -113,7 +113,7 @@ class VectorStore {
             // Fallback: use simple embeddings
             logger.warn('Using fallback embeddings');
             for (let i = 0; i < allChunks.length; i++) {
-                this.chunks.push({
+                indexedChunks.push({
                     ...allChunks[i],
                     embedding: createSimpleEmbedding(allChunks[i].text),
                     id: `chunk_${i}`
@@ -121,6 +121,9 @@ class VectorStore {
             }
             this.hasEmbeddings = true; // Still usable, just less accurate
         }
+
+        // Swap in the new index only after embeddings are ready
+        this.chunks = indexedChunks;
 
         this.indexedAt = new Date().toISOString();
         const elapsed = Date.now() - startTime;

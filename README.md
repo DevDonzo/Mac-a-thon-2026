@@ -20,7 +20,7 @@ It is not autocomplete. It is a reasoning system you can audit.
 | **Chunking** | Character-based token windows | AST-aware symbol boundaries (functions, classes) |
 | **Transparency** | No source attribution | Clickable file + line citations for each claim |
 | **Structural awareness** | None | Import/export dependency graph, symbol extraction |
-| **Architecture tooling** | None | Mermaid diagram generation from real dependency data |
+| **Architecture tooling** | None | Interactive Architecture Builder with edit/view modes |
 | **Privacy model** | Code sent to third-party cloud | All inference in your own GCP project |
 | **Memory** | Resets per session | Persistent threads via Backboard.io |
 
@@ -105,13 +105,20 @@ Ask a question about your project through the dashboard or VS Code (`Cmd+Shift+A
 - Relevance scores are tracked per chunk. Low-confidence retrievals trigger a warning in the system prompt, telling the model to hedge rather than hallucinate.
 - If you ask from VS Code with a file open, chunks from that file are weighted higher (7 current-file chunks vs 3 from the rest of the repo).
 
-### 3. Architecture View and Code DNA
+### 3. Architecture Builder and Code DNA
 
 The dashboard provides two structural tools built from the actual dependency graph, not from LLM speculation:
 
 **Code DNA** is an interactive force-directed graph of your repo's import/export relationships. Nodes represent files or symbols (toggle between levels). Node color and size reflect structural role: heavily imported files appear as larger hubs. You can zoom, pan, and click any node to inspect it.
 
-**Architecture Diagram** generates a Mermaid diagram grouping files into logical subgraphs (Backend, Frontend, API) based on real dependency edges. This is useful for onboarding, documentation, or spotting structural problems.
+**Architecture Builder** replaces the static Mermaid view with a fully interactive, React Flow–powered canvas:
+
+- **Edit vs View mode.** View mode is read-only. Edit mode allows dragging nodes, creating connections, and adding instructions.
+- **Component Library.** Drag templates (UI Screen, API Route, Service, Auth, Worker, Database, Integration) or click Add to create draft nodes.
+- **Draft vs Actual nodes.** Actual nodes come from the AST graph; Draft nodes are your ideas.
+- **Node Instructions.** Click a node (in edit mode) to add plain-English goals for the AI.
+- **Commit to Code.** Sends the full visual graph to the backend and returns a refactor plan for review.
+- **Onboarding tutorial.** First-run walkthrough explains the workflow in plain language.
 
 Both tools are generated from parsed import/export statements, not from the LLM's general knowledge. The graph is your code's actual structure.
 

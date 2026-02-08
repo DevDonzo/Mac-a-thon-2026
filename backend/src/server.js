@@ -4,7 +4,16 @@ require('dotenv').config();
 
 const { config, validateConfig } = require('./config');
 const { initializeVertexAI, isReady } = require('./vertexai');
-const { askWithRAG, askDirect, analyzeCode, suggestRefactor, generateTests, generateArchitecture } = require('./ai');
+const {
+    askWithRAG,
+    askDirect,
+    analyzeCode,
+    suggestRefactor,
+    generateTests,
+    generateArchitecture,
+    generateRefactorPlanFromDesign,
+    generateRefactorPlanFromVisualGraph
+} = require('./ai');
 const vectorStore = require('./vectorStore');
 const backboard = require('./backboard');
 const logger = require('./logger');
@@ -269,6 +278,41 @@ app.post('/api/architecture', async (req, res) => {
     }
 });
 
+// Architecture sync: Mermaid or visual graph -> refactor plan
+app.post('/api/refactor-to-design', async (req, res) => {
+    try {
+        const { mermaid, originalMermaid, visualGraph } = req.body || {};
+
+        const hasMermaid = typeof mermaid === 'string' && mermaid.trim().length > 0;
+        const hasVisualGraph = visualGraph && typeof visualGraph === 'object';
+
+        if (!hasMermaid && !hasVisualGraph) {
+            return res.status(400).json({ error: 'Either mermaid or visualGraph is required' });
+        }
+
+        if (!isReady()) {
+            return res.status(503).json({ error: 'Vertex AI not configured' });
+        }
+
+        const stats = vectorStore.getStats();
+        if (stats.totalChunks === 0) {
+            return res.status(400).json({ error: 'No project indexed. Index a project first.' });
+        }
+
+        const result = hasVisualGraph
+            ? await generateRefactorPlanFromVisualGraph({ visualGraph })
+            : await generateRefactorPlanFromDesign({
+                mermaid: mermaid.trim(),
+                originalMermaid: typeof originalMermaid === 'string' ? originalMermaid.trim() : ''
+            });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Architecture sync failed', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: 'Architecture sync failed', message: error.message });
+    }
+});
+
 // Clear index
 app.post('/api/clear', (req, res) => {
     vectorStore.clear();
@@ -346,6 +390,7 @@ function start() {
 ║    POST /api/ask        - RAG-powered queries                 ║
 ║    POST /api/analyze    - Code analysis                       ║
 ║    POST /api/refactor   - Refactoring suggestions             ║
+║    POST /api/refactor-to-design - Architecture sync plan      ║
 ║    POST /api/tests      - Generate tests                      ║
 ║    POST /api/architecture - Architecture diagram              ║
 ║                                                               ║
