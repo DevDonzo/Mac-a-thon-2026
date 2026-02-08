@@ -19,7 +19,7 @@ const DIRECT_REWRITE_CONCURRENCY = getPositiveIntEnv('DIRECT_COMMIT_CONCURRENCY'
 const DIRECT_REWRITE_MAX_RETRIES = getPositiveIntEnv('DIRECT_COMMIT_MAX_RETRIES', 2);
 const DIRECT_REWRITE_RETRY_DELAY_MS = getPositiveIntEnv('DIRECT_COMMIT_RETRY_DELAY_MS', 1200);
 const DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS = getPositiveIntEnv('DIRECT_COMMIT_FORCE_DIFF_ATTEMPTS', 2);
-const DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO = Math.max(0, Math.min(0.95, Number(process.env.DIRECT_COMMIT_MARKDOWN_MIN_CHANGE_RATIO || 0.35)));
+const DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO = Math.max(0, Math.min(0.95, Number(process.env.DIRECT_COMMIT_MARKDOWN_MIN_CHANGE_RATIO || 0.12)));
 
 /**
  * RAG-powered query with context retrieval
@@ -1036,7 +1036,7 @@ function buildSingleFileRewritePrompt({
         ? '\n6. Your output MUST be textually different from CURRENT_FILE_CONTENT and apply USER_INSTRUCTIONS concretely.'
         : '';
     const fullRewriteRequirement = requireFullFileRewrite
-        ? '\n7. Rewrite the entire prose content to reflect USER_INSTRUCTIONS. Do NOT just append a note or footer.'
+        ? '\n7. Preserve existing section headings, bullet structure, and links unless USER_INSTRUCTIONS explicitly request structural changes.\n8. Rewrite prose naturally to reflect USER_INSTRUCTIONS. Never prefix lines with repeated copies of USER_INSTRUCTIONS.'
         : '';
 
     return `You are a senior software engineer editing exactly one file.
@@ -1095,6 +1095,50 @@ function computeLineChangeRatio(beforeText, afterText) {
     return 1 - (unchanged / comparable);
 }
 
+function countCaseInsensitiveOccurrences(text, phrase) {
+    const haystack = String(text || '').toLowerCase();
+    const needle = String(phrase || '').toLowerCase().trim();
+    if (!needle || needle.length < 6) return 0;
+
+    let count = 0;
+    let index = 0;
+    while (index < haystack.length) {
+        const found = haystack.indexOf(needle, index);
+        if (found === -1) break;
+        count += 1;
+        index = found + needle.length;
+    }
+    return count;
+}
+
+function isLowQualityMarkdownRewrite({ originalText, rewrittenText, instructions }) {
+    const rewritten = String(rewrittenText || '');
+    if (!rewritten.trim()) return true;
+
+    const instructionSummary = sanitizeInstructionSummary(instructions);
+    const repeatedInstructionCount = countCaseInsensitiveOccurrences(rewritten, instructionSummary);
+    if (repeatedInstructionCount >= 3) {
+        return true;
+    }
+
+    const rewrittenLines = rewritten.split(/\r?\n/);
+    const instructionLineCount = rewrittenLines.filter((line) => {
+        const trimmed = line.trim().toLowerCase();
+        return trimmed.startsWith(instructionSummary.toLowerCase());
+    }).length;
+    if (rewrittenLines.length > 0 && (instructionLineCount / rewrittenLines.length) > 0.2) {
+        return true;
+    }
+
+    const originalHeadingCount = (String(originalText || '').match(/^#{1,6}\s+/gm) || []).length;
+    const rewrittenHeadingCount = (rewritten.match(/^#{1,6}\s+/gm) || []).length;
+    if (originalHeadingCount >= 3 && rewrittenHeadingCount < Math.ceil(originalHeadingCount * 0.5)) {
+        return true;
+    }
+
+    return false;
+}
+
 function buildGuaranteedDiffFallbackContent({ currentContent, instructions, languageHint }) {
     const cleanInstruction = sanitizeInstructionSummary(instructions);
     const sanitizedCurrent = stripCodeSenseiFallbackMarkers(currentContent);
@@ -1115,46 +1159,13 @@ function buildGuaranteedDiffFallbackContent({ currentContent, instructions, lang
         if (!base.trim()) {
             return `# Rewritten Content\n\n${cleanInstruction}\n`;
         }
+        return `${base}
+## Enforcement Addendum
 
-        const rewrittenLines = [];
-        const sourceLines = (base || '').split('\n');
-        let inCodeFence = false;
+Maintainers may escalate severe or repeated violations for formal review and, when appropriate under applicable law and policy, pursue legal action.
 
-        for (const line of sourceLines) {
-            const trimmed = line.trim();
-
-            if (/^```/.test(trimmed)) {
-                inCodeFence = !inCodeFence;
-                rewrittenLines.push(line);
-                continue;
-            }
-
-            if (inCodeFence) {
-                rewrittenLines.push(line);
-                continue;
-            }
-
-            if (!trimmed) {
-                rewrittenLines.push('');
-                continue;
-            }
-
-            if (/^#{1,6}\s/.test(trimmed)) {
-                rewrittenLines.push(`${trimmed} (rewritten)`);
-                continue;
-            }
-
-            if (/^[-*+]\s+/.test(trimmed)) {
-                const body = trimmed.replace(/^[-*+]\s+/, '');
-                rewrittenLines.push(`- ${cleanInstruction}: ${body}`);
-                continue;
-            }
-
-            rewrittenLines.push(`${cleanInstruction}: ${trimmed}`);
-        }
-
-        const rebuilt = rewrittenLines.join('\n').trimEnd();
-        return `${rebuilt}\n`;
+This addendum reflects: ${cleanInstruction}
+`;
     }
 
     if (['javascript', 'typescript', 'java', 'go', 'rust', 'php', 'c', 'cpp', 'csharp', 'swift', 'kotlin', 'scala'].includes(languageHint)) {
@@ -1356,8 +1367,14 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
 
                 const changed = rewrittenContent !== input.currentContent;
                 const changeRatio = computeLineChangeRatio(input.currentContent, rewrittenContent);
+                const markdownQualityOk = input.languageHint !== 'markdown'
+                    || !isLowQualityMarkdownRewrite({
+                        originalText: input.currentContent,
+                        rewrittenText: rewrittenContent,
+                        instructions: input.update.instructions
+                    });
                 const rewriteQualityAccepted = !input.requireFullFileRewrite
-                    || changeRatio >= DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO;
+                    || (changeRatio >= DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO && markdownQualityOk);
 
                 if (changed && rewriteQualityAccepted) {
                     return {
