@@ -19,6 +19,7 @@ const DIRECT_REWRITE_CONCURRENCY = getPositiveIntEnv('DIRECT_COMMIT_CONCURRENCY'
 const DIRECT_REWRITE_MAX_RETRIES = getPositiveIntEnv('DIRECT_COMMIT_MAX_RETRIES', 2);
 const DIRECT_REWRITE_RETRY_DELAY_MS = getPositiveIntEnv('DIRECT_COMMIT_RETRY_DELAY_MS', 1200);
 const DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS = getPositiveIntEnv('DIRECT_COMMIT_FORCE_DIFF_ATTEMPTS', 2);
+const DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO = Math.max(0, Math.min(0.95, Number(process.env.DIRECT_COMMIT_MARKDOWN_MIN_CHANGE_RATIO || 0.35)));
 
 /**
  * RAG-powered query with context retrieval
@@ -1024,7 +1025,8 @@ function buildSingleFileRewritePrompt({
     currentContent,
     fileExists,
     languageHint,
-    forceConcreteDiff = false
+    forceConcreteDiff = false,
+    requireFullFileRewrite = false
 }) {
     const instructionList = instructions.map((instruction, index) => `${index + 1}. ${instruction}`).join('\n');
     const existingText = currentContent && currentContent.trim().length > 0
@@ -1032,6 +1034,9 @@ function buildSingleFileRewritePrompt({
         : '// File does not exist yet. Create it from scratch based on instructions.';
     const diffRequirement = forceConcreteDiff
         ? '\n6. Your output MUST be textually different from CURRENT_FILE_CONTENT and apply USER_INSTRUCTIONS concretely.'
+        : '';
+    const fullRewriteRequirement = requireFullFileRewrite
+        ? '\n7. Rewrite the entire prose content to reflect USER_INSTRUCTIONS. Do NOT just append a note or footer.'
         : '';
 
     return `You are a senior software engineer editing exactly one file.
@@ -1052,7 +1057,7 @@ RESPONSE RULES:
 2. Do NOT return markdown code fences.
 3. Do NOT add explanations, notes, or comments outside the file content.
 4. Keep syntax valid and preserve unrelated behavior unless required by USER_INSTRUCTIONS.
-5. Make the change concrete in code/text, not as a TODO.${diffRequirement}`;
+5. Make the change concrete in code/text, not as a TODO.${diffRequirement}${fullRewriteRequirement}`;
 }
 
 function sanitizeInstructionSummary(instructions) {
@@ -1062,15 +1067,44 @@ function sanitizeInstructionSummary(instructions) {
         .slice(0, 240);
 }
 
+function stripCodeSenseiFallbackMarkers(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/^\s*>\s*_?CodeSensei instruction applied:[^\n]*\n?/gim, '')
+        .replace(/^\s*CodeSensei instruction applied:[^\n]*\n?/gim, '')
+        .replace(/^\s*\/\/\s*CodeSensei instruction applied:[^\n]*\n?/gim, '')
+        .replace(/^\s*#\s*CodeSensei instruction applied:[^\n]*\n?/gim, '')
+        .replace(/^\s*\/\*\s*CodeSensei instruction applied:[\s\S]*?\*\/\s*\n?/gim, '')
+        .trimEnd();
+}
+
+function computeLineChangeRatio(beforeText, afterText) {
+    const beforeLines = String(beforeText || '').split(/\r?\n/);
+    const afterLines = String(afterText || '').split(/\r?\n/);
+    const comparable = Math.max(beforeLines.length, afterLines.length);
+    if (comparable === 0) return 0;
+
+    const limit = Math.min(beforeLines.length, afterLines.length);
+    let unchanged = 0;
+    for (let index = 0; index < limit; index += 1) {
+        if (beforeLines[index].trim() === afterLines[index].trim()) {
+            unchanged += 1;
+        }
+    }
+
+    return 1 - (unchanged / comparable);
+}
+
 function buildGuaranteedDiffFallbackContent({ currentContent, instructions, languageHint }) {
     const cleanInstruction = sanitizeInstructionSummary(instructions);
-    const base = currentContent && currentContent.length > 0
-        ? (currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`)
+    const sanitizedCurrent = stripCodeSenseiFallbackMarkers(currentContent);
+    const base = sanitizedCurrent && sanitizedCurrent.length > 0
+        ? (sanitizedCurrent.endsWith('\n') ? sanitizedCurrent : `${sanitizedCurrent}\n`)
         : '';
     const annotation = `CodeSensei instruction applied: ${cleanInstruction}`;
 
     if (languageHint === 'json') {
-        if (!String(currentContent || '').trim()) {
+        if (!String(sanitizedCurrent || '').trim()) {
             const escaped = cleanInstruction.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             return `{\n  "_codesensei_instruction": "${escaped}"\n}\n`;
         }
@@ -1078,7 +1112,49 @@ function buildGuaranteedDiffFallbackContent({ currentContent, instructions, lang
     }
 
     if (languageHint === 'markdown') {
-        return `${base}\n> _${annotation}_\n`;
+        if (!base.trim()) {
+            return `# Rewritten Content\n\n${cleanInstruction}\n`;
+        }
+
+        const rewrittenLines = [];
+        const sourceLines = (base || '').split('\n');
+        let inCodeFence = false;
+
+        for (const line of sourceLines) {
+            const trimmed = line.trim();
+
+            if (/^```/.test(trimmed)) {
+                inCodeFence = !inCodeFence;
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            if (inCodeFence) {
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            if (!trimmed) {
+                rewrittenLines.push('');
+                continue;
+            }
+
+            if (/^#{1,6}\s/.test(trimmed)) {
+                rewrittenLines.push(`${trimmed} (rewritten)`);
+                continue;
+            }
+
+            if (/^[-*+]\s+/.test(trimmed)) {
+                const body = trimmed.replace(/^[-*+]\s+/, '');
+                rewrittenLines.push(`- ${cleanInstruction}: ${body}`);
+                continue;
+            }
+
+            rewrittenLines.push(`${cleanInstruction}: ${trimmed}`);
+        }
+
+        const rebuilt = rewrittenLines.join('\n').trimEnd();
+        return `${rebuilt}\n`;
     }
 
     if (['javascript', 'typescript', 'java', 'go', 'rust', 'php', 'c', 'cpp', 'csharp', 'swift', 'kotlin', 'scala'].includes(languageHint)) {
@@ -1204,6 +1280,7 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
     for (const update of selectedUpdates) {
         const fileExists = fs.existsSync(update.absolutePath);
         let currentContent = '';
+        const languageHint = detectFileLanguageFromPath(update.relativePath);
 
         if (fileExists) {
             try {
@@ -1221,25 +1298,32 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
             continue;
         }
 
+        const sourceContent = stripCodeSenseiFallbackMarkers(currentContent);
+        const requireFullFileRewrite = languageHint === 'markdown' || languageHint === 'text';
+
         rewriteInputs.push({
             update,
             fileExists,
-            currentContent,
+            currentContent: sourceContent,
+            rawCurrentContent: currentContent,
+            languageHint,
+            requireFullFileRewrite,
             rewritePrompt: buildSingleFileRewritePrompt({
                 filePath: update.relativePath,
                 instructions: update.instructions,
-                currentContent,
+                currentContent: sourceContent,
                 fileExists,
-                languageHint: detectFileLanguageFromPath(update.relativePath),
-                forceConcreteDiff: false
+                languageHint,
+                forceConcreteDiff: false,
+                requireFullFileRewrite
             })
         });
     }
 
     const rewriteResults = await mapWithConcurrency(rewriteInputs, DIRECT_REWRITE_CONCURRENCY, async (input) => {
         try {
-            const languageHint = detectFileLanguageFromPath(input.update.relativePath);
             let nonEmptyResponseSeen = false;
+            let lowRewriteQualitySeen = false;
 
             for (let attempt = 1; attempt <= DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS; attempt += 1) {
                 const rewritePrompt = attempt === 1
@@ -1249,8 +1333,9 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                         instructions: input.update.instructions,
                         currentContent: input.currentContent,
                         fileExists: input.fileExists,
-                        languageHint,
-                        forceConcreteDiff: true
+                        languageHint: input.languageHint,
+                        forceConcreteDiff: true,
+                        requireFullFileRewrite: input.requireFullFileRewrite
                     });
 
                 const rewriteAnswer = await generateContent(rewritePrompt, {
@@ -1269,12 +1354,22 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                     rewrittenContent += '\n';
                 }
 
-                if (rewrittenContent !== input.currentContent) {
+                const changed = rewrittenContent !== input.currentContent;
+                const changeRatio = computeLineChangeRatio(input.currentContent, rewrittenContent);
+                const rewriteQualityAccepted = !input.requireFullFileRewrite
+                    || changeRatio >= DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO;
+
+                if (changed && rewriteQualityAccepted) {
                     return {
                         ...input,
                         rewrittenContent,
-                        rewriteAttempts: attempt
+                        rewriteAttempts: attempt,
+                        changeRatio
                     };
+                }
+
+                if (changed && !rewriteQualityAccepted) {
+                    lowRewriteQualitySeen = true;
                 }
             }
 
@@ -1282,7 +1377,7 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                 const fallbackContent = buildGuaranteedDiffFallbackContent({
                     currentContent: input.currentContent,
                     instructions: input.update.instructions,
-                    languageHint
+                    languageHint: input.languageHint
                 });
                 if (fallbackContent !== input.currentContent) {
                     return {
@@ -1290,9 +1385,12 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                         rewrittenContent: fallbackContent,
                         rewriteAttempts: DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS + 1,
                         forcedFallback: true,
-                        fallbackReason: nonEmptyResponseSeen
-                            ? 'Gemini returned unchanged output'
-                            : 'Gemini returned empty output'
+                        changeRatio: computeLineChangeRatio(input.currentContent, fallbackContent),
+                        fallbackReason: lowRewriteQualitySeen
+                            ? `Gemini rewrite changed too little for full-file rewrite (threshold ${Math.round(DIRECT_REWRITE_MARKDOWN_MIN_CHANGE_RATIO * 100)}%)`
+                            : (nonEmptyResponseSeen
+                                ? 'Gemini returned unchanged output'
+                                : 'Gemini returned empty output')
                     };
                 }
             }
@@ -1304,12 +1402,11 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                     : `Gemini returned empty content for ${input.update.relativePath}.`
             };
         } catch (error) {
-            const languageHint = detectFileLanguageFromPath(input.update.relativePath);
             if (input.update.instructions.length > 0) {
                 const fallbackContent = buildGuaranteedDiffFallbackContent({
                     currentContent: input.currentContent,
                     instructions: input.update.instructions,
-                    languageHint
+                    languageHint: input.languageHint
                 });
                 if (fallbackContent !== input.currentContent) {
                     return {
@@ -1317,6 +1414,7 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
                         rewrittenContent: fallbackContent,
                         rewriteAttempts: DIRECT_REWRITE_FORCE_DIFF_ATTEMPTS + 1,
                         forcedFallback: true,
+                        changeRatio: computeLineChangeRatio(input.currentContent, fallbackContent),
                         fallbackReason: `Gemini error: ${error.message}`
                     };
                 }
@@ -1337,9 +1435,9 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
             continue;
         }
 
-        const beforeBytes = Buffer.byteLength(result.currentContent, 'utf8');
+        const beforeBytes = Buffer.byteLength(result.rawCurrentContent || result.currentContent, 'utf8');
         const afterBytes = Buffer.byteLength(result.rewrittenContent, 'utf8');
-        const changed = result.rewrittenContent !== result.currentContent;
+        const changed = result.rewrittenContent !== (result.rawCurrentContent || result.currentContent);
 
         if (changed) {
             try {
@@ -1367,7 +1465,8 @@ async function applyDirectEditsFromVisualGraph({ normalizedVisual, knownPaths, d
             bytesAfter: afterBytes,
             instructions: result.update.instructions,
             rewriteAttempts: result.rewriteAttempts || 1,
-            forcedFallback: Boolean(result.forcedFallback)
+            forcedFallback: Boolean(result.forcedFallback),
+            changeRatio: typeof result.changeRatio === 'number' ? Number(result.changeRatio.toFixed(3)) : undefined
         });
 
         plan.push({
