@@ -348,8 +348,13 @@ LOG_LEVEL=info
 ```json
 {
   "codesensei.backendUrl": "http://localhost:3000",
+  "codesensei.dashboardUrl": "http://localhost:5173",
   "codesensei.autoIndex": true,
-  "codesensei.maxFilesToIndex": 500
+  "codesensei.maxFilesToIndex": 500,
+  "codesensei.autoStartBackend": true,
+  "codesensei.autoStartDashboard": true,
+  "codesensei.backendStartCommand": "",
+  "codesensei.dashboardStartCommand": ""
 }
 ```
 

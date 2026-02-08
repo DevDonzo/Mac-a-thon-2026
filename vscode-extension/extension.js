@@ -1,6 +1,9 @@
 const vscode = require('vscode');
 const axios = require('axios');
 const path = require('path');
+const { spawn } = require('child_process');
+const net = require('net');
+const fs = require('fs');
 
 // Configuration
 const DEFAULT_API_URL = 'http://localhost:3000';
@@ -25,6 +28,11 @@ let isIndexing = false;
 let indexedFiles = 0;
 let outputChannel;
 let mentorMode = false; // Toggle for educational responses
+let backendProcess;
+let dashboardProcess;
+let healthInterval;
+let lastBackendOk = false;
+let bootComplete = false;
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -50,20 +58,27 @@ function activate(context) {
     ['codesensei.reindex', () => indexWorkspace(true)],
     ['codesensei.showMenu', showQuickPick],
     ['codesensei.openOutput', () => outputChannel.show()],
-    ['codesensei.toggleMentorMode', toggleMentorMode]
+    ['codesensei.toggleMentorMode', toggleMentorMode],
+    ['codesensei.openDashboard', openDashboard]
   ];
 
   for (const [cmd, handler] of commands) {
     context.subscriptions.push(vscode.commands.registerCommand(cmd, handler));
   }
 
+  // Boot sequence: auto-start services, then index, then poll health.
+  // One linear chain — no overlapping async paths.
+  bootServices().catch(err => {
+    log('Boot sequence FAILED', { error: err.message, stack: err.stack });
+  });
+
   // File watcher for auto re-index
   // Watch all relevant file types defined in INCLUDE_PATTERNS
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{js,ts,jsx,tsx,py,java,go,rs,rb,php,css,html,md,json,yaml,yml,c,cpp,cs,swift,kt,scala}');
   let reindexTimeout;
   const scheduleReindex = () => {
+    if (!bootComplete) return;
     clearTimeout(reindexTimeout);
-    // Reduce debounce to 2 seconds for snappier updates
     reindexTimeout = setTimeout(() => {
       log('Auto-indexing triggered by file change');
       indexWorkspace(false);
@@ -74,9 +89,6 @@ function activate(context) {
   watcher.onDidCreate(scheduleReindex);
   watcher.onDidDelete(scheduleReindex);
   context.subscriptions.push(watcher);
-
-  // Initial index
-  setTimeout(() => indexWorkspace(false), 2000);
 }
 
 function log(message, data = null) {
@@ -88,6 +100,249 @@ function log(message, data = null) {
 
 function getApiUrl() {
   return vscode.workspace.getConfiguration('codesensei').get('backendUrl') || DEFAULT_API_URL;
+}
+
+function getDashboardUrl() {
+  return vscode.workspace.getConfiguration('codesensei').get('dashboardUrl') || 'http://localhost:5173';
+}
+
+function getAutoStartConfig() {
+  const config = vscode.workspace.getConfiguration('codesensei');
+  return {
+    autoStartBackend: config.get('autoStartBackend') !== false,
+    autoStartDashboard: config.get('autoStartDashboard') !== false,
+    backendStartCommand: config.get('backendStartCommand') || '',
+    dashboardStartCommand: config.get('dashboardStartCommand') || '',
+  };
+}
+
+function resolveNodeDir() {
+  // Find the real node binary directory (not Electron's process.execPath)
+  const candidates = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+  ];
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(path.join(dir, 'node'))) {
+        return dir;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function buildDefaultCommands() {
+  // Use simple shell commands — identical to what the user types manually.
+  // spawnService always uses shell:true with an augmented PATH so
+  // node / npm / nodemon are all discoverable.
+  return {
+    backend:   'npm --prefix backend run dev',
+    dashboard: 'npm --prefix dashboard run dev -- --host 127.0.0.1 --port 5173',
+  };
+}
+
+async function isBackendRunning() {
+  try {
+    const res = await axios.get(`${getApiUrl()}/health`, { timeout: 1500 });
+    return Boolean(res.data && res.data.status === 'ok');
+  } catch {
+    return false;
+  }
+}
+
+function checkPortOpen(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const done = (ok) => {
+      try { socket.destroy(); } catch {}
+      resolve(ok);
+    };
+    socket.setTimeout(800);
+    socket.once('error', () => done(false));
+    socket.once('timeout', () => done(false));
+    socket.connect(port, host, () => done(true));
+  });
+}
+
+async function isDashboardRunning() {
+  try {
+    const url = getDashboardUrl();
+    const parsed = new URL(url);
+    const port = Number(parsed.port || 80);
+    const host = parsed.hostname;
+    return await checkPortOpen(port, host);
+  } catch {
+    return false;
+  }
+}
+
+function buildSpawnEnv() {
+  const env = { ...process.env };
+  // VS Code's extension host often strips PATH; rebuild it so spawned
+  // processes can locate node, npm, nodemon, npx, etc.
+  const nodeDir = resolveNodeDir();
+  const extraPaths = [
+    nodeDir,
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ].filter(Boolean);
+  const existing = (env.PATH || env.Path || '').split(path.delimiter);
+  const merged = [...new Set([...extraPaths, ...existing])];
+  env.PATH = merged.join(path.delimiter);
+  return env;
+}
+
+function getCodeSenseiRoot() {
+  // Where the CodeSensei backend/dashboard code lives (the tool itself).
+  // 1. Explicit setting
+  const configured = vscode.workspace.getConfiguration('codesensei').get('projectRoot');
+  if (configured && fs.existsSync(path.join(configured, 'backend', 'src', 'server.js'))) {
+    return configured;
+  }
+
+  // 2. Auto-detect: check common locations
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const candidates = [
+    path.join(home, 'Projects', 'Mac-a-thon-2026'),
+    path.join(home, 'projects', 'Mac-a-thon-2026'),
+    path.join(home, 'Developer', 'Mac-a-thon-2026'),
+    path.join(home, 'dev', 'Mac-a-thon-2026'),
+    path.join(home, 'Desktop', 'Mac-a-thon-2026'),
+  ];
+
+  // Also check if the current workspace IS the Mac-a-thon repo
+  const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (ws) candidates.unshift(ws);
+
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(path.join(dir, 'backend', 'src', 'server.js'))) {
+        return dir;
+      }
+    } catch {}
+  }
+
+  return undefined;
+}
+
+function spawnService(command, name, cwd) {
+  if (!cwd) {
+    log(`Cannot start ${name}: no CodeSensei root found`);
+    return null;
+  }
+  const env = buildSpawnEnv();
+
+  // Normalize: if command is an object {command, args}, join into a shell string
+  let shellCmd;
+  if (typeof command === 'string') {
+    shellCmd = command;
+  } else {
+    const parts = [command.command, ...(command.args || [])];
+    shellCmd = parts.map(a => (/[ "'\\]/.test(a) ? `'${a}'` : a)).join(' ');
+  }
+
+  log(`Starting ${name}...`, { shellCmd, cwd, PATH: env.PATH });
+
+  const child = spawn(shellCmd, {
+    cwd,
+    shell: true,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  log(`${name} spawned`, { pid: child.pid });
+
+  child.stdout.on('data', (chunk) => {
+    outputChannel.appendLine(`[${name}] ${chunk.toString().trim()}`);
+  });
+  child.stderr.on('data', (chunk) => {
+    outputChannel.appendLine(`[${name} stderr] ${chunk.toString().trim()}`);
+  });
+  child.on('error', (err) => {
+    outputChannel.appendLine(`[${name} ERROR] Failed to start: ${err.message}`);
+    log(`${name} failed to start`, { error: err.message });
+    if (name === 'backend') backendProcess = null;
+    if (name === 'dashboard') dashboardProcess = null;
+  });
+  child.on('exit', (code, signal) => {
+    outputChannel.appendLine(`[${name}] exited (code=${code}, signal=${signal})`);
+    log(`${name} exited`, { code, signal });
+    if (name === 'backend') backendProcess = null;
+    if (name === 'dashboard') dashboardProcess = null;
+  });
+
+  return child;
+}
+
+async function bootServices() {
+  const config = getAutoStartConfig();
+  log('Boot sequence starting', config);
+
+  // Find where the CodeSensei backend/dashboard code lives
+  const csRoot = getCodeSenseiRoot();
+  if (!csRoot) {
+    log('CodeSensei repo not found. Set codesensei.projectRoot in settings.');
+    updateStatus('offline', 'CodeSensei repo not found. Set codesensei.projectRoot in settings.');
+    startHealthPolling();
+    return;
+  }
+  log('CodeSensei root', { csRoot });
+
+  // 1. Ensure backend is running
+  if (config.autoStartBackend) {
+    const alreadyUp = await isBackendRunning();
+    if (alreadyUp) {
+      log('Backend already running');
+    } else {
+      updateStatus('initializing', 'Starting backend...');
+      const defaults = buildDefaultCommands();
+      const cmd = config.backendStartCommand?.trim() || defaults.backend;
+      backendProcess = spawnService(cmd, 'backend', csRoot);
+      const ready = await waitForBackendReady(15);
+      if (ready) {
+        log('Backend is ready after auto-start');
+      } else {
+        updateStatus('offline', 'Backend failed to start. Check CodeSensei output.');
+        log('Backend did not become ready');
+      }
+    }
+  }
+
+  // 2. Ensure dashboard is running
+  if (config.autoStartDashboard) {
+    const alreadyUp = await isDashboardRunning();
+    if (alreadyUp) {
+      log('Dashboard already running');
+    } else {
+      const defaults = buildDefaultCommands();
+      const cmd = config.dashboardStartCommand?.trim() || defaults.dashboard;
+      dashboardProcess = spawnService(cmd, 'dashboard', csRoot);
+    }
+  }
+
+  // 3. Index workspace if backend is up
+  if (await isBackendRunning()) {
+    await indexWorkspace(false);
+  }
+
+  // 4. Start health polling and allow file-watcher reindexing
+  bootComplete = true;
+  startHealthPolling();
+  log('Boot sequence complete');
+}
+
+async function waitForBackendReady(maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i += 1) {
+    if (await isBackendRunning()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return false;
 }
 
 function updateStatus(state, tooltip) {
@@ -109,6 +364,26 @@ function updateStatus(state, tooltip) {
 
   statusBarItem.text = `${icons[state] || icons.ready} ${texts[state] || texts.ready}`;
   statusBarItem.tooltip = tooltip;
+}
+
+function startHealthPolling() {
+  if (healthInterval) return;
+  healthInterval = setInterval(async () => {
+    const ok = await isBackendRunning();
+    if (ok !== lastBackendOk) {
+      lastBackendOk = ok;
+      if (ok) {
+        log('Backend is online');
+        if (indexedFiles === 0 && !isIndexing) {
+          indexWorkspace(false);
+        } else if (!isIndexing) {
+          updateStatus('ready', `Backend connected. Indexed ${indexedFiles} files.`);
+        }
+      } else if (!isIndexing) {
+        updateStatus('offline', 'Backend not running');
+      }
+    }
+  }, 5000);
 }
 
 async function indexWorkspace(showNotification = false) {
@@ -215,7 +490,7 @@ async function gatherProjectFiles(workspaceUri) {
 
 function handleConnectionError(error) {
   if (error.code === 'ECONNREFUSED') {
-    updateStatus('offline', 'Backend not running. Click to see setup instructions.');
+    updateStatus('offline', 'Backend not running');
     log('Backend connection refused');
   } else if (error.code === 'ETIMEDOUT') {
     updateStatus('error', 'Backend timeout');
@@ -234,6 +509,7 @@ async function showQuickPick() {
     { label: '$(tools) Suggest Refactor', description: 'Get refactoring suggestions', command: 'codesensei.refactor' },
     { label: '$(beaker) Generate Tests', description: 'Generate unit tests', command: 'codesensei.generateTests' },
     { label: '$(refresh) Re-index Workspace', description: 'Refresh the project index', command: 'codesensei.reindex' },
+    { label: '$(browser) Open Dashboard', description: 'Open the CodeSensei dashboard in your browser', command: 'codesensei.openDashboard' },
     { label: '$(output) View Logs', description: 'Open output channel', command: 'codesensei.openOutput' }
   ];
 
@@ -244,6 +520,11 @@ async function showQuickPick() {
   if (selected) {
     vscode.commands.executeCommand(selected.command);
   }
+}
+
+function openDashboard() {
+  const url = getDashboardUrl();
+  vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
 async function askCommand() {
@@ -743,6 +1024,18 @@ function escapeHtml(text) {
 }
 
 function deactivate() {
+  if (healthInterval) {
+    clearInterval(healthInterval);
+    healthInterval = null;
+  }
+  if (backendProcess) {
+    try { backendProcess.kill(); } catch {}
+    backendProcess = null;
+  }
+  if (dashboardProcess) {
+    try { dashboardProcess.kill(); } catch {}
+    dashboardProcess = null;
+  }
   if (outputChannel) {
     outputChannel.dispose();
   }

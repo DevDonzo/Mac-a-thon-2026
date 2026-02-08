@@ -79,6 +79,11 @@
                 "command": "codesensei.toggleMentorMode",
                 "title": "Toggle Mentor Mode 🎓",
                 "category": "CodeSensei"
+            },
+            {
+                "command": "codesensei.openDashboard",
+                "title": "Open Dashboard",
+                "category": "CodeSensei"
             }
         ],
         "menus": {
@@ -128,6 +133,9 @@
                 },
                 {
                     "command": "codesensei.reindex"
+                },
+                {
+                    "command": "codesensei.openDashboard"
                 }
             ]
         },
@@ -179,6 +187,36 @@
                     "type": "number",
                     "default": 500,
                     "description": "Maximum number of files to index"
+                },
+                "codesensei.autoStartBackend": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically start the backend server when the extension activates"
+                },
+                "codesensei.autoStartDashboard": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically start the dashboard dev server when the extension activates"
+                },
+                "codesensei.backendStartCommand": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Shell command used to start the backend server"
+                },
+                "codesensei.dashboardStartCommand": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Shell command used to start the dashboard dev server"
+                },
+                "codesensei.dashboardUrl": {
+                    "type": "string",
+                    "default": "http://localhost:5173",
+                    "description": "URL used to detect whether the dashboard is already running"
+                },
+                "codesensei.projectRoot": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Absolute path to the CodeSensei repo (containing backend/ and dashboard/). Auto-detected if empty."
                 }
             }
         }
